@@ -7,7 +7,6 @@ on:
 jobs:
   server386-build:
     name: Release Build Server (Linux 386, glibc 2.5+)
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
