@@ -1,25 +1,33 @@
-name: Build Linux 386 Server for CentOS 5.11
+name: Release Server for glibc 2.5 (CentOS 5.11)
+
+
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+    branches: [master]
 
 jobs:
-  build-linux-386-server:
-    name: Build Linux 386 (i686, glibc 2.5+) Server
+  server386-build:
+    name: Release Build Server (Linux 386, glibc 2.5+)
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
+      - name: Go 1.21
         uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version: "^1.21"
+
+      - name: OS Packages
+        run: |
+          sudo apt-get update --fix-missing && sudo apt-get -y install \
+          git build-essential zlib1g zlib1g-dev wget zip unzip
+
+      - name: Check Out Code
+        uses: actions/checkout@v4
+
+      - name: Git Fetch Tags
+        run: git fetch --prune --unshallow --tags -f
 
       - name: Clean old build and generated files
         run: |
@@ -37,14 +45,14 @@ jobs:
       #     cd server/assets/traffic-encoders
       #     make
 
-      - name: Build Linux 386 server
+      - name: Build Linux 386 server (glibc 2.5+)
         run: |
           GOOS=linux GOARCH=386 CGO_ENABLED=0 go build -mod=vendor -trimpath -tags go_sqlite,server -ldflags "-s -w" -o sliver-server_linux-386 ./server
-          mkdir -p ./linux386_server
-          cp ./sliver-server_linux-386* ./linux386_server/ 2>/dev/null || true
+          mkdir -p ./server386_artifacts
+          cp ./sliver-server_linux-386* ./server386_artifacts/ 2>/dev/null || true
 
-      - name: Upload server artifact
+      - name: Server 386 Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux386-server
-          path: ./linux386_server/
+          name: server-linux386
+          path: ./server386_artifacts/ 
