@@ -6,17 +6,21 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.22.0'
+      - uses: actions/checkout@v3
 
-      - name: Install prerequisites
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make protobuf-compiler upx
+          sudo apt-get install -y make upx protobuf-compiler gcc-multilib
+
+      - name: Install Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.22.2'
+
+      - name: Install Mage
+        run: go install github.com/magefile/mage@latest
 
       - name: Clone Sliver
         run: |
@@ -24,29 +28,22 @@ jobs:
           cd sliver
           git submodule update --init --recursive
 
-      - name: Build Sliver (Static 386)
+      - name: Build Sliver with Mage
         run: |
           cd sliver
           export CGO_ENABLED=0
           export GOOS=linux
           export GOARCH=386
           export GO386=softfloat
-          make
+          mage build
 
           mkdir -p output
           cp ./build/* output/
+          upx -9 output/*
 
-          echo "== 检查是否为静态编译 =="
-          ldd output/sliver-client || echo "Static binary confirmed"
-          ldd output/sliver-server || echo "Static binary confirmed"
-
-      - name: Zip Binaries
-        run: |
-          cd sliver/output
-          zip sliver-centos5-static.zip sliver-client sliver-server
-
-      - name: Upload Binaries
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: sliver-centos5-static
-          path: sliver/output/sliver-centos5-static.zip
+          name: sliver-386
+          path: sliver/output/
+
