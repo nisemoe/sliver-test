@@ -1,8 +1,10 @@
 name: Release Server for glibc 2.5 (CentOS 5.11)
 
 
+
 on:
-  workflow_dispatch:
+  push:
+    branches: [master]
 
 jobs:
   server386-build:
@@ -36,6 +38,21 @@ jobs:
       - name: Download/generate all assets
         run: make .downloaded_assets
 
+      - name: Ensure assets_linux_386.go exists
+        run: |
+          cat > server/assets/assets_linux_386.go <<'EOF'
+          //go:build server
+
+          package assets
+
+          import "embed"
+
+          var (
+              //go:embed fs/sliver.asc fs/*.txt fs/*.zip fs/linux/386/*
+              assetsFs embed.FS
+          )
+          EOF
+
       # 如有 traffic-encoders wasm 依赖，取消注释以下步骤
       # - name: Build traffic-encoders wasm
       #   run: |
@@ -52,4 +69,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: server-linux386
-          path: ./server386_artifacts/
+          path: ./server386_artifacts/ 
