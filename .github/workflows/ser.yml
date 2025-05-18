@@ -15,7 +15,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         repository: BishopFox/sliver
-        ref: main
+        ref: master
 
     - name: Setup Go 1.22
       uses: actions/setup-go@v4
