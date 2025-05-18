@@ -21,15 +21,23 @@ jobs:
       - name: Prepare build output directory
         run: mkdir -p ./centos5_build
 
+      - name: Build custom CentOS 5 buildenv image (inline Dockerfile)
+        run: |
+          cat <<'EOF' > Dockerfile.centos5
+          FROM centos:5
+          RUN rpm --rebuilddb && \
+              yum install -y gcc gcc-c++ make git zlib-devel wget zip unzip && \
+              yum clean all
+          WORKDIR /workspace
+          EOF
+          docker build -t centos5-buildenv -f Dockerfile.centos5 .
+
       - name: Build in CentOS 5 (i386) Docker container
         run: |
-          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace centos:5 bash -c "
-            yum install -y gcc gcc-c++ make git zlib-devel wget zip unzip
-            # 如有其他依赖，继续 yum install
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace centos5-buildenv bash -c "
             make clean || true
             make servers || true
             make clients || true
-            # 复制产物到输出目录
             cp ./sliver-server_* ./centos5_build/ 2>/dev/null || true
             cp ./sliver-client_* ./centos5_build/ 2>/dev/null || true
           "
