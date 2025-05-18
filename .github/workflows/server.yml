@@ -1,7 +1,5 @@
 name: Build Linux 386 Server for CentOS 5.11
 
-
-
 on:
   workflow_dispatch:
   push:
@@ -23,15 +21,24 @@ jobs:
         with:
           go-version: "1.21"
 
-      - name: Download assets
+      - name: Clean old build and generated files
+        run: |
+          make clean
+          rm -rf server/assets/fs/linux/386
+          rm -f server/assets/fs/*.zip
+          rm -f server/assets/assets_linux_386.go
+
+      - name: Download/generate all assets
         run: make .downloaded_assets
 
-      - name: Generate Go assets
-        run: go generate ./server/...
+      # 如有 traffic-encoders wasm 依赖，取消注释以下步骤
+      # - name: Build traffic-encoders wasm
+      #   run: |
+      #     cd server/assets/traffic-encoders
+      #     make
 
       - name: Build Linux 386 server
         run: |
-          make clean
           GOOS=linux GOARCH=386 CGO_ENABLED=0 go build -mod=vendor -trimpath -tags go_sqlite,server -ldflags "-s -w" -o sliver-server_linux-386 ./server
           mkdir -p ./linux386_server
           cp ./sliver-server_linux-386* ./linux386_server/ 2>/dev/null || true
