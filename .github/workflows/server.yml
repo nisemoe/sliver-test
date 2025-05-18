@@ -26,10 +26,12 @@ jobs:
       - name: Download assets
         run: make .downloaded_assets
 
+      - name: Generate Go assets
+        run: go generate ./server/...
+
       - name: Build Linux 386 server
         run: |
           make clean
-          make .downloaded_assets
           GOOS=linux GOARCH=386 CGO_ENABLED=0 go build -mod=vendor -trimpath -tags go_sqlite,server -ldflags "-s -w" -o sliver-server_linux-386 ./server
           mkdir -p ./linux386_server
           cp ./sliver-server_linux-386* ./linux386_server/ 2>/dev/null || true
