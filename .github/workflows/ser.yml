@@ -14,7 +14,7 @@ jobs:
     - name: Checkout repo
       uses: actions/checkout@v3
       with:
-        repository: mist2ke/sliverc
+        repository: BishopFox/sliver
         ref: main
 
     - name: Setup Go 1.22
