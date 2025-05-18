@@ -16,6 +16,7 @@ jobs:
       with:
         repository: BishopFox/sliver
         ref: master
+        # path: sliver    # 可选，不配置则检出到根目录
 
     - name: Setup Go 1.22
       uses: actions/setup-go@v4
@@ -23,13 +24,10 @@ jobs:
         go-version: '1.22'
 
     - name: Generate assets binding file
-      run: |
-        cd sliver
-        go run ./scripts/generate_assets.go
+      run: go run ./scripts/generate_assets.go
 
     - name: Build sliver (386 static)
       run: |
-        cd sliver
         export CGO_ENABLED=0
         export GOOS=linux
         export GOARCH=386
@@ -39,18 +37,17 @@ jobs:
 
     - name: Prepare output and compress with UPX
       run: |
-        cd sliver
         mkdir -p output
         cp build/sliver-client build/sliver-server output/
         upx -9 output/sliver-client output/sliver-server || echo "UPX compress failed, skipping"
 
     - name: Verify static binary
       run: |
-        ldd sliver/output/sliver-client || echo "sliver-client is static"
-        ldd sliver/output/sliver-server || echo "sliver-server is static"
+        ldd output/sliver-client || echo "sliver-client is static"
+        ldd output/sliver-server || echo "sliver-server is static"
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: sliver-binaries
-        path: sliver/output/
+        path: output/
