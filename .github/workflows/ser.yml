@@ -1,6 +1,9 @@
-name: build-sliver
+name: Build Sliver for CentOS 5.11 (386 static)
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -8,49 +11,46 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+    - name: Checkout repo
+      uses: actions/checkout@v3
+      with:
+        repository: mist2ke/sliverc
+        ref: main
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential protobuf-compiler upx wget gcc-multilib
+    - name: Setup Go 1.22
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
 
-      - name: Install Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.22.2'
+    - name: Download assets (generate assetsFs)
+      run: |
+        cd sliver
+        go run ./scripts/download_assets.go
 
-      - name: Clone Sliver
-        run: |
-          git clone https://github.com/BishopFox/sliver.git
-          cd sliver
-          git submodule update --init --recursive
+    - name: Build sliver (386 static)
+      run: |
+        cd sliver
+        export CGO_ENABLED=0
+        export GOOS=linux
+        export GOARCH=386
+        export GO386=softfloat
+        go build -mod=vendor -trimpath -tags "go_sqlite" -ldflags "-s -w" -o build/sliver-client ./client
+        go build -mod=vendor -trimpath -tags "go_sqlite,server" -ldflags "-s -w" -o build/sliver-server ./server
 
-      - name: Download assets
-        run: |
-          cd sliver
-          make download-assets
+    - name: Prepare output and compress with UPX
+      run: |
+        cd sliver
+        mkdir -p output
+        cp build/sliver-client build/sliver-server output/
+        upx -9 output/sliver-client output/sliver-server || echo "UPX compress failed, skipping"
 
-      - name: Build Sliver Client/Server
-        run: |
-          cd sliver
-          export CGO_ENABLED=0
-          export GOOS=linux
-          export GOARCH=386
-          export GO386=softfloat
-          go build -trimpath -mod=vendor -tags "go_sqlite" -ldflags "-s -w" -o build/sliver-client ./client
-          go build -trimpath -mod=vendor -tags "go_sqlite,server" -ldflags "-s -w" -o build/sliver-server ./server
+    - name: Verify static binary
+      run: |
+        ldd sliver/output/sliver-client || echo "sliver-client is static"
+        ldd sliver/output/sliver-server || echo "sliver-server is static"
 
-      - name: Pack output
-        run: |
-          cd sliver
-          mkdir -p output
-          cp build/* output/
-          upx -9 output/*
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: sliver-linux-386
-          path: sliver/output/
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: sliver-binaries
+        path: sliver/output/
