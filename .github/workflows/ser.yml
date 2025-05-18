@@ -1,9 +1,11 @@
 name: Release Server for glibc 2.5 (CentOS 5.11)
 
-
+description: |
+  仅编译并发布适配 glibc 2.5 (CentOS 5.11, i386) 的 sliver server 端二进制。
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [master]
 
 jobs:
   server386-build:
@@ -54,4 +56,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: server-linux386
-          path: ./server386_artifacts/ 
+          path: ./server386_artifacts/
