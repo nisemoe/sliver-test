@@ -14,8 +14,8 @@ jobs:
         with:
           go-version: '1.22.0'
 
-      - name: Checkout (fake step, we clone real repo below)
-        run: echo "Skipping main repo checkout"
+      - name: Checkout
+        run: echo "Using clone below instead"
 
       - name: Clone Sliver source
         run: |
@@ -23,26 +23,27 @@ jobs:
           cd sliver
           git submodule update --init --recursive
 
-      - name: Build Sliver Client and Server (static linux/386)
+      - name: Build Sliver with Makefile (static 386)
         run: |
           cd sliver
-          mkdir -p build
           export CGO_ENABLED=0
           export GOOS=linux
           export GOARCH=386
           export GO386=387
-          go build -trimpath -buildvcs=false -ldflags="-s -w" -o build/sliver-client ./cmd/client
-          go build -trimpath -buildvcs=false -ldflags="-s -w" -o build/sliver-server ./cmd/server
-          ldd build/sliver-client || echo "Static binary confirmed"
-          ldd build/sliver-server || echo "Static binary confirmed"
+          make build
+          mkdir -p output
+          mv sliver-client output/
+          mv sliver-server output/
+          ldd output/sliver-client || echo "Static binary confirmed"
+          ldd output/sliver-server || echo "Static binary confirmed"
 
       - name: Archive Binaries
         run: |
-          cd sliver/build
+          cd sliver/output
           zip sliver-centos5-static.zip sliver-client sliver-server
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sliver-centos5-binaries
-          path: sliver/build/sliver-centos5-static.zip
+          path: sliver/output/sliver-centos5-static.zip
