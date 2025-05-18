@@ -1,9 +1,9 @@
-name: Build Sliver for Linux 386 static
+name: Build Sliver (386 static)
 
 on:
   push:
     branches:
-      - master
+      - main
   workflow_dispatch:
 
 jobs:
@@ -11,29 +11,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Sliver repo
+    - name: Checkout repo
       uses: actions/checkout@v3
       with:
         repository: BishopFox/sliver
-        ref: master
-        # path: sliver    # 可选，不配置则检出到根目录
+        ref: main
 
     - name: Setup Go 1.22
       uses: actions/setup-go@v4
       with:
         go-version: '1.22'
 
-    - name: Generate assets binding file
-      run: go run ./scripts/generate_assets.go
+    - name: Install mage
+      run: go install github.com/magefile/mage@latest
 
-    - name: Build sliver (386 static)
-      run: |
-        export CGO_ENABLED=0
-        export GOOS=linux
-        export GOARCH=386
-        export GO386=softfloat
-        go build -mod=vendor -tags go_sqlite -o build/sliver-client ./client
-        go build -mod=vendor -tags "go_sqlite,server" -o build/sliver-server ./server
+    - name: Generate assets and build
+      run: mage build
 
     - name: Prepare output and compress with UPX
       run: |
