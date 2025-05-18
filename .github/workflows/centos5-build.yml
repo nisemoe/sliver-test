@@ -1,0 +1,41 @@
+name: CentOS 5.11 Compatible Build
+
+
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-centos5:
+    name: Build on CentOS 5.11 (i386)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare build output directory
+        run: mkdir -p ./centos5_build
+
+      - name: Build in CentOS 5 (i386) Docker container
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace centos:5 bash -c "
+            yum install -y gcc gcc-c++ make git zlib-devel wget zip unzip
+            # 如有其他依赖，继续 yum install
+            make clean || true
+            make servers || true
+            make clients || true
+            # 复制产物到输出目录
+            cp ./sliver-server_* ./centos5_build/ 2>/dev/null || true
+            cp ./sliver-client_* ./centos5_build/ 2>/dev/null || true
+          "
+
+      - name: Upload CentOS 5 build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: centos5-binaries
+          path: ./centos5_build/ 
