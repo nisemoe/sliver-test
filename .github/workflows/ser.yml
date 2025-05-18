@@ -14,23 +14,21 @@ jobs:
         with:
           go-version: '1.22.0'
 
-      - name: Checkout
-        run: echo "Using clone below instead"
-
       - name: Clone Sliver source
         run: |
           git clone https://github.com/BishopFox/sliver.git sliver
           cd sliver
           git submodule update --init --recursive
 
-      - name: Build Sliver with Makefile (static 386)
+      - name: Build Sliver (static, 386)
         run: |
           cd sliver
           export CGO_ENABLED=0
           export GOOS=linux
           export GOARCH=386
           export GO386=387
-          make build
+          go build -trimpath -buildvcs=false -ldflags="-s -w" -o sliver-client ./client
+          go build -trimpath -buildvcs=false -ldflags="-s -w" -o sliver-server ./server
           mkdir -p output
           mv sliver-client output/
           mv sliver-server output/
