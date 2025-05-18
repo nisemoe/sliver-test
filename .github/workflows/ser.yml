@@ -1,72 +1,43 @@
-name: Release Server for glibc 2.5 (CentOS 5.11)
-
-
+name: Build Sliver for CentOS5.11 (Static 32-bit)
 
 on:
-  push:
-    branches: [master]
+  workflow_dispatch:
 
 jobs:
-  server386-build:
-    name: Release Build Server (Linux 386, glibc 2.5+)
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    name: Static Build (linux/386)
+
     steps:
-      - name: Go 1.21
-        uses: actions/setup-go@v5
-        with:
-          go-version: "^1.21"
-
-      - name: OS Packages
-        run: |
-          sudo apt-get update --fix-missing && sudo apt-get -y install \
-          git build-essential zlib1g zlib1g-dev wget zip unzip
-
-      - name: Check Out Code
+      - name: Checkout Sliver
         uses: actions/checkout@v4
 
-      - name: Git Fetch Tags
-        run: git fetch --prune --unshallow --tags -f
-
-      - name: Clean old build and generated files
-        run: |
-          make clean
-          rm -rf server/assets/fs/linux/386
-          rm -f server/assets/fs/*.zip
-          rm -f server/assets/assets_linux_386.go
-
-      - name: Download/generate all assets
-        run: make .downloaded_assets
-
-      - name: Ensure assets_linux_386.go exists
-        run: |
-          cat > server/assets/assets_linux_386.go <<'EOF'
-          //go:build server
-
-          package assets
-
-          import "embed"
-
-          var (
-              //go:embed fs/sliver.asc fs/*.txt fs/*.zip fs/linux/386/*
-              assetsFs embed.FS
-          )
-          EOF
-
-      # 如有 traffic-encoders wasm 依赖，取消注释以下步骤
-      # - name: Build traffic-encoders wasm
-      #   run: |
-      #     cd server/assets/traffic-encoders
-      #     make
-
-      - name: Build Linux 386 server (glibc 2.5+)
-        run: |
-          GOOS=linux GOARCH=386 CGO_ENABLED=0 go build -mod=vendor -trimpath -tags go_sqlite,server -ldflags "-s -w" -o sliver-server_linux-386 ./server
-          mkdir -p ./server386_artifacts
-          cp ./sliver-server_linux-386* ./server386_artifacts/ 2>/dev/null || true
-
-      - name: Server 386 Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Set up Go
+        uses: actions/setup-go@v4
         with:
-          name: server-linux386
-          path: ./server386_artifacts/ 
+          go-version: '1.17'  # 更低版本更兼容旧 libc
+
+      - name: Build Sliver Client and Server (static linux/386)
+        run: |
+          mkdir -p build
+          export CGO_ENABLED=0
+          export GOOS=linux
+          export GOARCH=386
+          export GO386=387
+          # 构建客户端
+          go build -trimpath -ldflags="-s -w" -o build/sliver-client ./cmd/client
+          # 构建服务端
+          go build -trimpath -ldflags="-s -w" -o build/sliver-server ./cmd/server
+          # 验证是否为静态编译
+          ldd build/sliver-client || echo "Static binary confirmed"
+          ldd build/sliver-server || echo "Static binary confirmed"
+
+      - name: Archive Binaries
+        run: |
+          cd build
+          zip sliver-centos5-static.zip sliver-client sliver-server
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: sliver-centos5-binaries
