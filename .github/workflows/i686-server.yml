@@ -62,54 +62,54 @@ jobs:
           
           # 直接创建一个本地补丁脚本来修复 configs/crack.go 的整数溢出问题
           cat > fix_crack.sh << 'EOF'
-          #!/bin/bash
-          set -e
-          
-          # 检查文件是否存在
-          if [ ! -f ./server/configs/crack.go ]; then
-            echo "Error: crack.go not found"
-            exit 1
-          fi
-          
-          # 读取原始文件
-          ORIG_CONTENT=$(cat ./server/configs/crack.go)
-          
-          # 输出原始内容的第104行附近
-          echo "原始文件的第104行附近内容:"
-          echo "$ORIG_CONTENT" | sed -n '100,110p'
-          
-          # 使用精确的替换
-          NEW_CONTENT=$(echo "$ORIG_CONTENT" | sed 's/10737418240/int64(10737418240)/g')
-          
-          # 检查替换结果
-          echo "替换后的内容第104行附近:"
-          echo "$NEW_CONTENT" | sed -n '100,110p'
-          
-          # 输出到新文件
-          echo "$NEW_CONTENT" > ./server/configs/crack.go.new
-          
-          # 验证替换是否成功
-          if grep -q "int64(10737418240)" ./server/configs/crack.go.new; then
-            echo "替换成功，应用新文件"
-            mv ./server/configs/crack.go.new ./server/configs/crack.go
-          else
-            echo "替换失败，尝试精确替换"
-            # 针对104行的精确替换
-            LINE_104=$(echo "$ORIG_CONTENT" | sed -n '104p')
-            FIXED_LINE_104=$(echo "$LINE_104" | sed 's/10737418240/int64(10737418240)/g')
-            
-            echo "原始第104行: $LINE_104"
-            echo "修复后第104行: $FIXED_LINE_104"
-            
-            # 构建新文件
-            echo "$ORIG_CONTENT" | sed '104s/.*/'"\${FIXED_LINE_104}"'/' > ./server/configs/crack.go.new2
-            mv ./server/configs/crack.go.new2 ./server/configs/crack.go
-          fi
-          
-          # 最终检查
-          grep -n "defaultMaxFileSize" ./server/configs/crack.go
-          grep -n "10737418240" ./server/configs/crack.go || echo "所有整数值已替换"
-          EOF
+#!/bin/bash
+set -e
+
+# Check if file exists
+if [ ! -f ./server/configs/crack.go ]; then
+  echo "Error: crack.go not found"
+  exit 1
+fi
+
+# Read original content
+ORIG_CONTENT=$(cat ./server/configs/crack.go)
+
+# Show original content around line 104
+echo "Original content around line 104:"
+echo "$ORIG_CONTENT" | sed -n '100,110p'
+
+# Replace all occurrences of the integer
+NEW_CONTENT=$(echo "$ORIG_CONTENT" | sed 's/10737418240/int64(10737418240)/g')
+
+# Check replacement result
+echo "Replaced content around line 104:"
+echo "$NEW_CONTENT" | sed -n '100,110p'
+
+# Save to new file
+echo "$NEW_CONTENT" > ./server/configs/crack.go.new
+
+# Verify if replacement was successful
+if grep -q "int64(10737418240)" ./server/configs/crack.go.new; then
+  echo "Replacement successful, applying new file"
+  mv ./server/configs/crack.go.new ./server/configs/crack.go
+else
+  echo "Replacement failed, trying direct line replacement"
+  # Replace specific line 104
+  LINE_104=$(echo "$ORIG_CONTENT" | sed -n '104p')
+  FIXED_LINE_104=$(echo "$LINE_104" | sed 's/10737418240/int64(10737418240)/g')
+  
+  echo "Original line 104: $LINE_104"
+  echo "Fixed line 104: $FIXED_LINE_104"
+  
+  # Build new file with replaced line
+  echo "$ORIG_CONTENT" | sed "104s/.*/${FIXED_LINE_104}/" > ./server/configs/crack.go.new2
+  mv ./server/configs/crack.go.new2 ./server/configs/crack.go
+fi
+
+# Final check
+grep -n "defaultMaxFileSize" ./server/configs/crack.go
+grep -n "10737418240" ./server/configs/crack.go || echo "All integer values have been replaced"
+EOF
           
           # 使脚本可执行并运行它
           chmod +x fix_crack.sh
@@ -117,7 +117,7 @@ jobs:
           
           # 终极解决方案：如果所有替换方法都失败，直接创建一个新的没有问题的文件
           if [ -f ./server/configs/crack.go ]; then
-            echo "创建一个备份方案crack.go文件"
+            echo "Creating a backup crack.go file with fixed integer types"
             cat > crack_fixed.go << 'EOFILE'
 // Package configs contains server configuration settings
 package configs
@@ -411,7 +411,7 @@ EOFILE
             # 替换原始文件
             cp crack_fixed.go ./server/configs/crack.go
             
-            echo "显示替换后的内容:"
+            echo "Displaying replaced content:"
             grep -n "10737418240" ./server/configs/crack.go
             grep -n "defaultMaxFileSize" ./server/configs/crack.go
           fi
@@ -613,14 +613,15 @@ EOFILE
           # 配置Git安全目录
           git config --global --add safe.directory /build
           
+          # 在Docker容器内部的修复步骤
           # 再次修复 configs/crack.go 中的整数溢出问题
           if [ -f /build/server/configs/crack.go ]; then
-            echo "===== 在构建容器内修复crack.go ====="
+            echo "===== Fixing crack.go in build container ====="
             cat /build/server/configs/crack.go | sed 's/10737418240/int64(10737418240)/g' > /tmp/crack.go
             mv /tmp/crack.go /build/server/configs/crack.go
             
             # 显示修复后的文件
-            echo "第104行附近的内容:"
+            echo "Content around line 104:"
             sed -n '100,110p' /build/server/configs/crack.go 
           fi
           
@@ -674,35 +675,35 @@ EOFILE
       - name: Verify patched files
         if: failure()
         run: |
-          echo "构建失败，检查修补的文件是否正确："
+          echo "Build failed, checking if files were patched correctly:"
           
-          echo "查看configs/crack.go中的defaultMaxFileSize:"
-          grep -n "defaultMaxFileSize" ./server/configs/crack.go || echo "未找到defaultMaxFileSize"
-          grep -n "10737418240" ./server/configs/crack.go || echo "整数值已全部替换"
-          grep -n "int64" ./server/configs/crack.go || echo "未找到int64转换"
+          echo "Checking defaultMaxFileSize in configs/crack.go:"
+          grep -n "defaultMaxFileSize" ./server/configs/crack.go || echo "defaultMaxFileSize not found"
+          grep -n "10737418240" ./server/configs/crack.go || echo "All integer values have been replaced"
+          grep -n "int64" ./server/configs/crack.go || echo "No int64 conversion found"
           
-          echo "显示lines附近的内容:"
+          echo "Showing lines around line 104:"
           if [ -f ./server/configs/crack.go ]; then
-            echo "======= 显示第104行附近的内容 ======="
+            echo "======= Content around line 104 ======="
             sed -n '99,110p' ./server/configs/crack.go
           fi
           
-          echo "查看所有GetZigDir调用:"
-          grep -n "GetZigDir" ./server/gogo/go.go || echo "未找到GetZigDir调用"
+          echo "Checking GetZigDir calls:"
+          grep -n "GetZigDir" ./server/gogo/go.go || echo "No GetZigDir calls found"
           
-          echo "检查assets.go中的GetZigDir函数定义:"
-          grep -n "func GetZigDir" ./server/assets/assets.go || echo "未找到GetZigDir函数定义"
+          echo "Checking GetZigDir function definition in assets.go:"
+          grep -n "func GetZigDir" ./server/assets/assets.go || echo "GetZigDir function not found"
           
-          echo "查看错误输出:"
-          cat /tmp/build.log || echo "没有错误日志"
+          echo "Checking error log:"
+          cat /tmp/build.log || echo "No build log found"
 
       - name: Test binary compatibility
         run: |
-          # 列出当前目录文件
-          echo "当前目录文件："
+          # List files in current directory
+          echo "Files in current directory:"
           ls -la ./
           
-          # 验证二进制文件是否为静态链接的32位可执行文件
+          # Verify binary is a statically linked 32-bit executable
           if [ -f ./sliver-server-centos5-i686 ]; then
             file ./sliver-server-centos5-i686
             ldd ./sliver-server-centos5-i686 || echo "Binary is static (expected)"
@@ -710,6 +711,12 @@ EOFILE
             echo "Binary not found, checking other locations..."
             find ./ -name "sliver-server-centos5-i686" -type f
           fi
+      
+      # Ensure file exists with correct permissions
+      - name: Verify file existence and permissions
+        run: |
+          ls -la ./sliver-server-centos5-i686 || echo "Binary not found in expected location"
+          [ -f ./sliver-server-centos5-i686 ] && chmod +x ./sliver-server-centos5-i686
 
       - name: Upload sliver server
         uses: actions/upload-artifact@v4
@@ -760,9 +767,3 @@ EOFILE
         with:
           name: sliver-server-centos5-i686-docs
           path: README-centos5-i686.md 
-
-      # 确保文件存在且有正确权限
-      - name: Verify file existence and permissions
-        run: |
-          ls -la ./sliver-server-centos5-i686 || echo "Binary not found in expected location"
-          [ -f ./sliver-server-centos5-i686 ] && chmod +x ./sliver-server-centos5-i686 
