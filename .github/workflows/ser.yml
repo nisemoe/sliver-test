@@ -310,21 +310,13 @@ jobs:
             # 备份原始文件
             cp ./server/encoders/encoders.go ./server/encoders/encoders.go.bak
             
-            # 创建补丁文件
-            cat > fix-encoders.sh << 'EOFIXENC'
-            #!/bin/bash
-            
-            # 为no_assets模式修改初始化代码
+            # 直接使用sed命令修复，不使用heredoc
+            echo "修复assets.English()调用..."
             sed -i '/util.SetEnglishDictionary(assets.English())/c\	\/\/ util.SetEnglishDictionary 在no_assets模式下禁用\n	\/\/ util.SetEnglishDictionary(assets.English())' ./server/encoders/encoders.go
             
             # 打印结果
             echo "修复后的init函数:"
             grep -A 10 "func init" ./server/encoders/encoders.go
-            EOFIXENC
-            
-            # 执行修复
-            chmod +x fix-encoders.sh
-            ./fix-encoders.sh
           fi
           
           # 检查和修复gogo/go.go中的GetZigDir调用
@@ -352,6 +344,33 @@ jobs:
             echo "修复后:"
             grep -n "defaultMaxDiskUsage" ./server/configs/crack.go
           fi
+
+          # 检查loot.go和encoders.go修复
+          echo "检查所有修复是否已应用..."
+          
+          # 检查loot.go
+          if ! grep -q "MaxLootSize int64" ./server/loot/loot.go && grep -q "MaxLootSize" ./server/loot/loot.go; then
+            echo "修复loot.go中的MaxLootSize..."
+            sed -i 's/MaxLootSize = 2 \* 1024 \* 1024 \* 1024/MaxLootSize int64 = 2 \* 1024 \* 1024 \* 1024/g' ./server/loot/loot.go
+          fi
+          
+          # 检查encoders.go
+          if grep -q "assets.English()" ./server/encoders/encoders.go; then
+            echo "修复encoders.go中的assets.English调用..."
+            sed -i '/util.SetEnglishDictionary(assets.English())/c\	\/\/ util.SetEnglishDictionary 在no_assets模式下禁用\n	\/\/ util.SetEnglishDictionary(assets.English())' ./server/encoders/encoders.go
+          fi
+          
+          # 打印修复结果
+          echo "==== 修复结果检查 ===="
+          echo "1. loot.go中的MaxLootSize:"
+          grep -n "MaxLootSize" ./server/loot/loot.go || echo "未找到MaxLootSize定义"
+          
+          echo "2. encoders.go中的init函数:"
+          grep -A 5 "func init" ./server/encoders/encoders.go || echo "未找到init函数"
+          
+          echo "3. configs/crack.go中的defaultMaxFileSize和defaultMaxDiskUsage:"
+          grep -n "defaultMaxFileSize" ./server/configs/crack.go || echo "未找到defaultMaxFileSize"
+          grep -n "defaultMaxDiskUsage" ./server/configs/crack.go || echo "未找到defaultMaxDiskUsage"
           
           # 创建build.sh脚本
           echo '#!/bin/sh' > build.sh
@@ -487,15 +506,31 @@ jobs:
               # 显示修复后的内容
               echo "修复后的内容:"
               grep -n "defaultMaxDiskUsage" ./server/configs/crack.go
-              
-              # 尝试直接在当前环境编译
-              echo "在主环境中尝试重新编译..."
-              docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && \
-                sed -i 's/int6464/int64/g' ./server/configs/crack.go && \
-                sed -i 's/MaxLootSize = 2 \* 1024 \* 1024 \* 1024/MaxLootSize int64 = 2 \* 1024 \* 1024 \* 1024/g' ./server/loot/loot.go && \
-                sed -i '/util.SetEnglishDictionary(assets.English())/c\\t\\/\\/ util.SetEnglishDictionary 在no_assets模式下禁用\\n\\t\\/\\/ util.SetEnglishDictionary(assets.English())' ./server/encoders/encoders.go && \
-                go build -mod=vendor -trimpath -tags netgo,osusergo,no_assets,server,go_sqlite -ldflags '-s -w -extldflags \"-static -Wl,--strip-all\"' -o sliver-server-centos5-i686 ./server"
             fi
+            
+            # 尝试直接在当前环境编译
+            echo "在主环境中尝试重新编译..."
+            docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && \
+              echo '应用所有已知修复...' && \
+              sed -i 's/int6464/int64/g' ./server/configs/crack.go && \
+              sed -i 's/const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024/const defaultMaxFileSize int64 = 10 \* 1024 \* 1024 \* 1024/g' ./server/configs/crack.go && \
+              sed -i 's/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g' ./server/configs/crack.go && \
+              sed -i 's/MaxLootSize = 2 \* 1024 \* 1024 \* 1024/MaxLootSize int64 = 2 \* 1024 \* 1024 \* 1024/g' ./server/loot/loot.go && \
+              sed -i '/util.SetEnglishDictionary(assets.English())/c\\t\\/\\/ util.SetEnglishDictionary 在no_assets模式下禁用\\n\\t\\/\\/ util.SetEnglishDictionary(assets.English())' ./server/encoders/encoders.go && \
+              echo '显示修复后的文件:' && \
+              echo '=== loot.go ===' && \
+              grep -n 'MaxLootSize' ./server/loot/loot.go && \
+              echo '=== encoders.go ===' && \
+              grep -A 5 'func init' ./server/encoders/encoders.go && \
+              echo '=== crack.go ===' && \
+              grep -n 'defaultMaxFileSize\|defaultMaxDiskUsage' ./server/configs/crack.go && \
+              echo '开始构建...' && \
+              go build -mod=vendor -trimpath -tags netgo,osusergo,no_assets,server,go_sqlite -ldflags '-s -w -extldflags \"-static -Wl,--strip-all\"' -o sliver-server-centos5-i686 ./server || { \
+                echo '构建失败，显示更多调试信息:' && \
+                grep -n 'MaxLootSize' ./server/loot/loot.go && \
+                grep -A 10 'func init' ./server/encoders/encoders.go && \
+                false; \
+              }"
           fi
       
       - name: Prepare binary for upload
