@@ -20,537 +20,358 @@ jobs:
       - name: Set up Docker
         uses: docker/setup-buildx-action@v2
         
+      - name: Ensure assets script is executable
+        run: |
+          chmod +x go-assets.sh
+          ls -la go-assets.sh
       - name: Create Dockerfile for Alpine
         run: |
-          echo "FROM golang:1.22.2-alpine3.19" > Dockerfile.alpine
-          echo "" >> Dockerfile.alpine
-          echo "# Install basic build tools and dependencies" >> Dockerfile.alpine
-          echo "RUN apk add --no-cache build-base git ca-certificates upx curl bash zip unzip xz" >> Dockerfile.alpine
-          echo "" >> Dockerfile.alpine
-          echo "# Set working directory" >> Dockerfile.alpine
-          echo "WORKDIR /build" >> Dockerfile.alpine
-          echo "" >> Dockerfile.alpine
-          echo "# Set environment variables" >> Dockerfile.alpine
-          echo "ENV CGO_ENABLED=0" >> Dockerfile.alpine
-          echo "ENV GOOS=linux" >> Dockerfile.alpine
-          echo "ENV GOARCH=386" >> Dockerfile.alpine
-
+          cat > Dockerfile.alpine << 'EOF'
+          FROM golang:1.22.2-alpine3.19
+          # 安装基本构建工具和依赖
+          RUN apk add --no-cache build-base git ca-certificates upx curl bash zip unzip xz
+          # 设置工作目录
+          WORKDIR /build
+          # 设置环境变量
+          ENV CGO_ENABLED=0
+          ENV GOOS=linux
+          ENV GOARCH=386
+          EOF
       - name: Build Docker image
         run: docker build -t sliver-build -f Dockerfile.alpine .
 
       - name: Prepare patched asset files
         run: |
-          # Create directory structure
+          # 创建目录结构
           mkdir -p ./server/assets/
           
-          # Fix GetZigDir() calls in server/gogo/go.go
+          # 修复 server/gogo/go.go 中的 GetZigDir 调用
           if [ -f ./server/gogo/go.go ]; then
-            # Replace all calls without parameters, add GOOS and GOARCH parameters
+            # 替换所有没有参数的 GetZigDir 调用，添加 GOOS 和 GOARCH 参数
             sed -i 's/GetZigDir()/GetZigDir("linux", "386")/g' ./server/gogo/go.go
             
-            # Print modified file to verify replacement
-            echo "Checking modified gogo/go.go file:"
+            # 打印修改后的文件，检查是否正确替换
+            echo "检查修改后的 gogo/go.go 文件:"
             grep -n "GetZigDir" ./server/gogo/go.go
           fi
           
-          # Create patch script to fix integer overflow in configs/crack.go
-          echo "#!/bin/bash" > fix_crack.sh
-          echo "set -e" >> fix_crack.sh
-          echo "" >> fix_crack.sh
-          echo "# Check if file exists" >> fix_crack.sh
-          echo "if [ ! -f ./server/configs/crack.go ]; then" >> fix_crack.sh
-          echo "  echo \"Error: crack.go not found\"" >> fix_crack.sh
-          echo "  exit 1" >> fix_crack.sh
-          echo "fi" >> fix_crack.sh
-          echo "" >> fix_crack.sh
-          echo "# Read original content" >> fix_crack.sh
-          echo "ORIG_CONTENT=\$(cat ./server/configs/crack.go)" >> fix_crack.sh
-          echo "" >> fix_crack.sh
-          echo "# Show original content around line 104" >> fix_crack.sh
-          echo "echo \"Original content around line 104:\"" >> fix_crack.sh
-          echo "echo \"\$ORIG_CONTENT\" | sed -n \"100,110p\"" >> fix_crack.sh
-          echo "" >> fix_crack.sh
-          echo "# Replace all occurrences of the integer" >> fix_crack.sh
-          echo "NEW_CONTENT=\$(echo \"\$ORIG_CONTENT\" | sed \"s/10737418240/int64(10737418240)/g\")" >> fix_crack.sh
-          echo "" >> fix_crack.sh
-          echo "# Check replacement result" >> fix_crack.sh
-          echo "echo \"Replaced content around line 104:\"" >> fix_crack.sh
-          echo "echo \"\$NEW_CONTENT\" | sed -n \"100,110p\"" >> fix_crack.sh
-          echo "" >> fix_crack.sh
-          echo "# Save to new file" >> fix_crack.sh
-          echo "echo \"\$NEW_CONTENT\" > ./server/configs/crack.go.new" >> fix_crack.sh
-          echo "" >> fix_crack.sh
-          echo "# Verify if replacement was successful" >> fix_crack.sh
-          echo "if grep -q \"int64(10737418240)\" ./server/configs/crack.go.new; then" >> fix_crack.sh
-          echo "  echo \"Replacement successful, applying new file\"" >> fix_crack.sh
-          echo "  mv ./server/configs/crack.go.new ./server/configs/crack.go" >> fix_crack.sh
-          echo "else" >> fix_crack.sh
-          echo "  echo \"Replacement failed, trying direct line replacement\"" >> fix_crack.sh
-          echo "  # Replace specific line 104" >> fix_crack.sh
-          echo "  LINE_104=\$(echo \"\$ORIG_CONTENT\" | sed -n \"104p\")" >> fix_crack.sh
-          echo "  FIXED_LINE_104=\$(echo \"\$LINE_104\" | sed \"s/10737418240/int64(10737418240)/g\")" >> fix_crack.sh
-          echo "  " >> fix_crack.sh
-          echo "  echo \"Original line 104: \$LINE_104\"" >> fix_crack.sh
-          echo "  echo \"Fixed line 104: \$FIXED_LINE_104\"" >> fix_crack.sh
-          echo "  " >> fix_crack.sh
-          echo "  # Build new file with replaced line" >> fix_crack.sh
-          echo "  echo \"\$ORIG_CONTENT\" | sed \"104s/.*/${FIXED_LINE_104}/\" > ./server/configs/crack.go.new2" >> fix_crack.sh
-          echo "  mv ./server/configs/crack.go.new2 ./server/configs/crack.go" >> fix_crack.sh
-          echo "fi" >> fix_crack.sh
-          echo "" >> fix_crack.sh
-          echo "# Final check" >> fix_crack.sh
-          echo "grep -n \"defaultMaxFileSize\" ./server/configs/crack.go" >> fix_crack.sh
-          echo "grep -n \"10737418240\" ./server/configs/crack.go || echo \"All integer values have been replaced\"" >> fix_crack.sh
-          
-          # Make script executable and run it
-          chmod +x fix_crack.sh
-          ./fix_crack.sh
-          
-          # Ultimate solution: if all replacement methods fail, create a new file without issues
+          # 修复 configs/crack.go 中的整数溢出问题
           if [ -f ./server/configs/crack.go ]; then
-            echo "Creating a backup crack.go file with fixed integer types"
-            echo '// Package configs contains server configuration settings
-package configs
-
-import (
-	"encoding/json"
-	"io/ioutil"
-	"os"
-	"path"
-	"path/filepath"
-	"strconv"
-	"time"
-
-	"github.com/bishopfox/sliver/protobuf/clientpb"
-	"github.com/sirupsen/logrus"
-)
-
-const (
-	crackConfigFileName = "crack.json"
-)
-
-var (
-	crackConfigLog = logrus.WithField("config", "crack")
-)
-
-// CrackConfig - Config related to attack surface
-type CrackConfig struct {
-	HashcatPath     string   `json:"hashcat_path"`
-	JohnPath        string   `json:"john_path"`
-	WordlistPath    string   `json:"wordlist_path"`
-	RulesPath       string   `json:"rules_path"`
-	AttackModes     []int    `json:"attack_modes"`
-	DefaultCharsets []string `json:"default_charsets"`
-	FileFormats     []string `json:"file_formats"`
-	MaxFileSize     int64    `json:"max_file_size"`
-}
-
-// GetCrackConfigPath - Get the config path
-func GetCrackConfigPath() string {
-	appDir := GetRootAppDir()
-	mk(filepath.Join(appDir, ".sliver-client"))
-	return filepath.Join(appDir, ".sliver-client", crackConfigFileName)
-}
-
-// SaveCrackConfig - Save config to disk
-func SaveCrackConfig(config *CrackConfig) error {
-	if config.MaxFileSize == 0 {
-		defaultMaxFileSize := int64(10737418240)
-		config.MaxFileSize = defaultMaxFileSize
-		crackConfigLog.Warnf("MaxFileSize not configured - defaulting to %d", defaultMaxFileSize)
-	}
-	configPath := GetCrackConfigPath()
-	configJSON, _ := json.MarshalIndent(config, "", "    ")
-	return ioutil.WriteFile(configPath, configJSON, 0o600)
-}
-
-// GetCrackConfig - Returns the current config
-func GetCrackConfig() *CrackConfig {
-	configPath := GetCrackConfigPath()
-	config := getCrackConfigFromDisk(configPath)
-	if config == nil {
-		config = &CrackConfig{
-			MaxFileSize: int64(10737418240),
-			AttackModes: []int{0, 3},
-			DefaultCharsets: []string{
-				"?l?d?u", "?l?d", "?l?d?s", "?a",
-			},
-			FileFormats: []string{
-				"hccapx", "pcap", "ntds", "sam", "security", "system",
-				"zip", "pfx", "rar", "pdf", "doc", "docx",
-				"xls", "xlsx", "ppt", "pptx", "odt",
-				"gz", "tar", "7z", "luks",
-			},
-		}
-		saveErr := SaveCrackConfig(config)
-		if saveErr != nil {
-			crackConfigLog.Errorf("Failed to save config: %s", saveErr)
-		}
-	}
-	return config
-}
-
-func getCrackConfigFromDisk(path string) *CrackConfig {
-	_, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	data, err := ioutil.ReadFile(path)
-	if err != nil {
-		crackConfigLog.Errorf("Failed to read config file: %s", err)
-		return nil
-	}
-	config := &CrackConfig{}
-	err = json.Unmarshal(data, config)
-	if err != nil {
-		crackConfigLog.Errorf("Failed to parse cofnig file: %s", err)
-		return nil
-	}
-	return config
-}
-
-// CrackCiphers - Returns the supported ciphers
-func CrackCiphers() []string {
-	return []string{
-		"zip",
-		"zip2",
-		"rar",
-		"rar5",
-		"pdf",
-		"luks",
-		"7z",
-		"office",
-		"office2007",
-		"office2010",
-		"office2013",
-		"itunes",
-	}
-}
-
-// CrackListHashes - Returns list of hashes, cracks, sessions, etc
-func CrackListHashes() *clientpb.CrackList {
-	result := &clientpb.CrackList{}
-	appDir := GetRootAppDir()
-	hashcatDir := path.Join(appDir, ".sliver-client", "hashcat")
-	if _, err := os.Stat(hashcatDir); os.IsNotExist(err) {
-		crackConfigLog.Infof("The folder \"%s\" does not exist.", hashcatDir)
-		return result
-	}
-	files, err := os.ReadDir(hashcatDir)
-	if err != nil {
-		crackConfigLog.Errorf("Failed to list directory: %s", err)
-		return result
-	}
-
-	// Loop over files, check if they are valid hashcat outfiles
-	for _, file := range files {
-		if file.IsDir() || file.Name() == "hashcat.potfile" || filepath.Ext(file.Name()) != ".out" {
-			continue
-		}
-		path := path.Join(hashcatDir, file.Name())
-		stats, err := file.Info()
-		if err != nil {
-			crackConfigLog.Errorf("Failed to get file stats: %s", err)
-			continue
-		}
-
-		// Skip outfiles that are too old
-		if time.Now().Sub(stats.ModTime()) > 356*24*time.Hour {
-			continue
-		}
-
-		// Extract stats
-		// TODO: add more details
-		estimatedCompletionDuration := ""
-		estimatedCompletionDate := ""
-
-		name := file.Name()[:len(file.Name())-4]
-		fileInfo := &clientpb.CrackFile{
-			Name:                        name,
-			Path:                        path,
-			ModTime:                     stats.ModTime().Format(time.RFC3339),
-			Size:                        stats.Size(),
-			EstimatedCompletionDuration: estimatedCompletionDuration,
-			EstimatedCompletionDate:     estimatedCompletionDate,
-		}
-
-		// Parse the outfile and extract additional info
-		data, err := ioutil.ReadFile(path)
-		if err != nil {
-			crackConfigLog.Errorf("Failed to read file: %s", err)
-			continue
-		}
-
-		lines := []string{}
-		var lineStatus string
-		var prevLineStatus string
-		var cracked bool
-		var i int
-		var totalHashCount int
-		var crackedHashCount int
-		var status string
-		var lastProgress string
-		for _, line := range string(data) {
-			if line == '\n' {
-				lines = append(lines, lineStatus)
-				lineStatus = ""
-				continue
-			}
-			lineStatus += string(line)
-		}
-		if lineStatus != "" {
-			lines = append(lines, lineStatus)
-		}
-
-		for i = 0; i < len(lines); i++ {
-			line := lines[i]
-			if len(line) > 18 && line[:18] == "Started: " {
-				fileInfo.StartedAt = line[9:]
-			}
-			if len(line) > 10 && line[:10] == "Recovered:" {
-				parts := line[11:]
-				nums := []int{}
-				var num string
-				for _, c := range parts {
-					if c >= '0' && c <= '9' {
-						num += string(c)
-					} else if num != "" {
-						n, err := strconv.Atoi(num)
-						if err != nil {
-							crackConfigLog.Debugf("Failed to parse number: %s", err)
-							num = ""
-							continue
-						}
-						nums = append(nums, n)
-						num = ""
-					}
-				}
-				if len(nums) >= 2 {
-					// Note: this can be a string like "1/0 (inf%)"
-					crackedHashCount = nums[0]
-					totalHashCount = nums[1]
-					if totalHashCount == 0 {
-						totalHashCount = 1
-					}
-				}
-			} else if len(line) > 7 && line[:7] == "Status:" {
-				status = line[8:]
-				if status == "Cracked" {
-					cracked = true
-				}
-			} else if len(line) > 10 && line[:10] == "Progress: " {
-				lastProgress = line[10:]
-			}
-		}
-
-		if cracked {
-			// Find all cracked creds
-			fileInfo.Status = "Cracked"
-			var results []*clientpb.CrackResult
-			for i = 0; i < len(lines); i++ {
-				line := lines[i]
-				// The creds are display as hash:pwd, after the Status: line
-				if prevLineStatus == "Status: Cracked" && line != "" {
-					parts := []rune(line)
-					colonPos := -1
-					for j, c := range parts {
-						if c == ':' {
-							colonPos = j
-							break
-						}
-					}
-					if colonPos == -1 {
-						continue
-					}
-					hash := string(parts[:colonPos])
-					pwd := string(parts[colonPos+1:])
-					results = append(results, &clientpb.CrackResult{
-						Hash:     hash,
-						Password: pwd,
-					})
-				}
-				prevLineStatus = line
-			}
-			fileInfo.Results = results
-		} else {
-			fileInfo.Status = "Running (" + lastProgress + ")"
-		}
-		fileInfo.CrackedHashes = int64(crackedHashCount)
-		fileInfo.TotalHashes = int64(totalHashCount)
-
-		result.Files = append(result.Files, fileInfo)
-	}
-
-	return result
-}
-
-// GetRootAppDir - Get the Sliver app dir
-func GetRootAppDir() string {
-	appDir, err := os.Executable()
-	if err != nil {
-		panic(err)
-	}
-	return filepath.Dir(appDir)
-}
-
-func mk(dir string) {
-	os.MkdirAll(dir, 0o700)
-}
-
+            # 使用更全面的替换方式，确保所有10737418240都被替换
+            # 将文件内容保存到临时文件
+            cat ./server/configs/crack.go > temp_crack.go
+            
+            # 替换所有出现的10737418240
+            sed -i 's/10737418240/int64(10737418240)/g' temp_crack.go
+            
+            # 修复可能的double cast，如int64(int64(10737418240))
+            sed -i 's/int64(int64(/int64(/g' temp_crack.go
+            sed -i 's/))/)/g' temp_crack.go
+            
+            # 打印104行附近的内容进行检查
+            echo "修改前第104行附近内容："
+            sed -n '99,110p' ./server/configs/crack.go
+            
+            echo "修改后第104行附近内容："
+            sed -n '99,110p' temp_crack.go
+            
+            # 如果替换成功，则覆盖原文件
+            cp temp_crack.go ./server/configs/crack.go
+            
+            # 打印修改后的文件，检查是否正确替换
+            echo "检查修改后的 configs/crack.go 文件:"
+            grep -n "10737418240" ./server/configs/crack.go || echo "整数值已全部替换"
+            grep -n "int64(10737418240)" ./server/configs/crack.go || echo "未找到int64转换"
+            
+            # 确保在构建脚本中记录这个文件的修改
+            echo "=== crack.go has been patched ===" > /tmp/crack_patched
+          fi
+          
+          # 检查缺失的函数
+          grep -n "setupLog" ./server/assets/assets-helpers.go || echo "setupLog not found"
+          grep -n "GetTrafficEncoderDir" ./server/assets/assets-helpers.go || echo "GetTrafficEncoderDir not found"
+          grep -n "GoDirName" ./server/assets/assets-helpers.go || echo "GoDirName not found"
+          grep -n "GetRootAppDir" ./server/assets/assets-helpers.go || echo "GetRootAppDir not found"
+          grep -n "GetZigDir" ./server/assets/assets-helpers.go || echo "GetZigDir not found"
+          # 创建补丁文件以修复缺少的函数
+          cat > assets-patch.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          # 创建assets_generate.go文件
+          cat > ./server/assets/assets_generate.go << 'EOFILE'
+          //go:build generate
+          // +build generate
+          package assets
+          // 这个文件用于go generate命令，但我们在编译时使用no_assets标签跳过它
+          // 此文件不包含实际功能，仅为了满足编译要求
+          EOFILE
+          
+          # 创建带有所有必要函数的assets.go文件
+          cat > ./server/assets/assets.go << 'EOFILE'
+          //go:build !generate && no_assets
+          // +build !generate,no_assets
+          package assets
+          import (
+            "errors"
+            "io/fs"
+            "os"
+            "path/filepath"
+            "log"
+          )
+          
+          // 定义常量
+          const (
+            GoDirName = "go"
+            ZigDirName = "zig"
+          )
+          
+          // 自定义日志记录器
+          type Logger struct {
+              stdLogger *log.Logger
+          }
+          func (l *Logger) Info(args ...interface{}) {
+              l.stdLogger.Println(args...)
+          }
+          func (l *Logger) Infof(format string, args ...interface{}) {
+              l.stdLogger.Printf(format, args...)
+          }
+          func (l *Logger) Warn(args ...interface{}) {
+              l.stdLogger.Println("[WARN]", args)
+          }
+          func (l *Logger) Warnf(format string, args ...interface{}) {
+              l.stdLogger.Printf("[WARN] "+format, args...)
+          }
+          func (l *Logger) Error(args ...interface{}) {
+              l.stdLogger.Println("[ERROR]", args)
+          }
+          func (l *Logger) Errorf(format string, args ...interface{}) {
+              l.stdLogger.Printf("[ERROR] "+format, args...)
+          }
+          func (l *Logger) Debug(args ...interface{}) {
+              l.stdLogger.Println("[DEBUG]", args)
+          }
+          func (l *Logger) Debugf(format string, args ...interface{}) {
+              l.stdLogger.Printf("[DEBUG] "+format, args...)
+          }
+          
+          // 创建自定义日志记录器实例
+          var setupLog = &Logger{
+              stdLogger: log.New(os.Stderr, "assets: ", log.LstdFlags),
+          }
+          
+          // Setup - 初始化资产
+          func Setup() {
+              setupLog.Infof("[assets] Skip loading embedded assets (using no_assets tag)")
+          }
+          
+          // Asset - 实现Asset函数
+          func Asset(name string) ([]byte, error) {
+              setupLog.Debugf("Asset called for %s (not implemented in no_assets build)", name)
+              return []byte{}, errors.New("assets not available in this build")
+          }
+          
+          // AssetDir - 实现AssetDir函数
+          func AssetDir(name string) ([]string, error) {
+              setupLog.Debugf("AssetDir called for %s (not implemented in no_assets build)", name)
+              return []string{}, errors.New("assets not available in this build")
+          }
+          
+          // AssetInfo - 实现AssetInfo函数
+          func AssetInfo(name string) (fs.FileInfo, error) {
+              setupLog.Debugf("AssetInfo called for %s (not implemented in no_assets build)", name)
+              return nil, errors.New("assets not available in this build")
+          }
+          // GetTrafficEncoderDir - 获取流量编码器目录
+          func GetTrafficEncoderDir() string {
+              return filepath.Join(".", "traffic-encoders")
+          }
+          
+          // GetRootAppDir - 获取应用程序根目录
+          func GetRootAppDir() string {
+              exePath, err := os.Executable()
+              if err != nil {
+                  setupLog.Errorf("Failed to get executable path: %s", err)
+                  return "."
+              }
+              return filepath.Dir(exePath)
+          }
+          
+          // GetZigDir - 获取Zig目录
+          func GetZigDir(targetOS string, targetArch string) string {
+              zigDir := filepath.Join(GetRootAppDir(), ".sliver-client", "zig")
+              if _, err := os.Stat(zigDir); os.IsNotExist(err) {
+                  os.MkdirAll(zigDir, 0700)
+              }
+              return zigDir
+          }
+          
+          // 定义assetsFs变量
+          var assetsFs = &AssetFS{
+              Asset:    Asset,
+              AssetDir: AssetDir,
+              AssetInfo: AssetInfo,
+          }
+          
+          // AssetFS - 文件系统接口实现
+          type AssetFS struct {
+              Asset    func(name string) ([]byte, error)
+              AssetDir func(name string) ([]string, error)
+              AssetInfo func(name string) (fs.FileInfo, error)
+          }
+          
+          // ReadFile - 添加的为了兼容assets-helpers.go的方法
+          func (a *AssetFS) ReadFile(name string) ([]byte, error) {
+              return a.Asset(name)
+          }
+          
+          // 为了避免编译器报错，添加缺失的一些目录函数
+          func GetGoDirPath(goOS string, goArch string) string {
+              return filepath.Join(".", GoDirName, goOS, goArch) 
+          }
+          
+          func GetGoZipPath(goOS string, goArch string) string {
+              return filepath.Join(GetGoDirPath(goOS, goArch), "go.zip")
+          }
+          
+          func GetSGNPath(goOS string, goArch string) string {
+              return filepath.Join(".", "sgn", goOS, goArch)
+          }
+          
+          func GetGarblePath(goOS string, goArch string) string {
+              return filepath.Join(".", "garble", goOS, goArch) 
+          }
+          
+          func GetZigPath(goOS string, goArch string) string {
+              return filepath.Join(".", ZigDirName, goOS, goArch)
+          }
+          EOFILE
+          
+          # 创建assets-helpers.go的修复替换
+          # 我们首先检查是否存在原始文件，如果存在则备份它
+          if [ -f ./server/assets/assets-helpers.go ]; then
+              cp ./server/assets/assets-helpers.go ./server/assets/assets-helpers.go.bak
+              # 尝试修复ReadFile错误
+              sed -i 's/assetsFs\.ReadFile/assetsFs\.Asset/g' ./server/assets/assets-helpers.go
+          fi
+          EOF
+          
+          # 使脚本可执行并运行它
+          chmod +x assets-patch.sh
+          ./assets-patch.sh
       - name: Build Sliver for CentOS 5.11
         run: |
           # 创建build.sh脚本
-          echo "#!/bin/sh" > build.sh
-          echo "set -e" >> build.sh
-          echo "" >> build.sh
-          echo "# Configure Git safe directory" >> build.sh
-          echo "git config --global --add safe.directory /build" >> build.sh
-          echo "" >> build.sh
-          echo "# Fix integer overflow in configs/crack.go inside the container" >> build.sh
-          echo "if [ -f /build/server/configs/crack.go ]; then" >> build.sh
-          echo "  echo \"===== Fixing crack.go in build container =====\" " >> build.sh
-          echo "  cat /build/server/configs/crack.go | sed \"s/10737418240/int64(10737418240)/g\" > /tmp/crack.go" >> build.sh
-          echo "  mv /tmp/crack.go /build/server/configs/crack.go" >> build.sh
-          echo "  " >> build.sh
-          echo "  # Show the modified file" >> build.sh
-          echo "  echo \"Content around line 104:\"" >> build.sh
-          echo "  sed -n \"100,110p\" /build/server/configs/crack.go " >> build.sh
-          echo "fi" >> build.sh
-          echo "" >> build.sh
-          echo "# Set version information" >> build.sh
-          echo "export VERSION=\$(git describe --abbrev=0 || echo \"v0.0.0\")" >> build.sh
-          echo "export COMPILED_AT=\$(date +%s)" >> build.sh
-          echo "export RELEASES_URL=\"https://api.github.com/repos/BishopFox/sliver/releases\"" >> build.sh
-          echo "export GIT_COMMIT=\$(git rev-parse HEAD || echo \"unknown\")" >> build.sh
-          echo "export GIT_DIRTY=\$(git diff --quiet || echo \"Dirty\")" >> build.sh
-          echo "export ARMORY_PUBLIC_KEY=\"RWSBpxpRWDrD7Fe+VvRE3c2VEDC2NK80rlNCj+BX0gz44Xw07r6KQD9L\"" >> build.sh
-          echo "export ARMORY_REPO_URL=\"https://api.github.com/repos/sliverarmory/armory/releases\"" >> build.sh
-          echo "" >> build.sh
-          echo "# Set build flags" >> build.sh
-          echo "export LDFLAGS=\"-s -w \\" >> build.sh
-          echo "  -extldflags \\\"-static -Wl,--strip-all\\\" \\" >> build.sh
-          echo "  -X github.com/bishopfox/sliver/client/version.Version=\${VERSION} \\" >> build.sh
-          echo "  -X github.com/bishopfox/sliver/client/version.CompiledAt=\${COMPILED_AT} \\" >> build.sh
-          echo "  -X github.com/bishopfox/sliver/client/version.GithubReleasesURL=\${RELEASES_URL} \\" >> build.sh
-          echo "  -X github.com/bishopfox/sliver/client/version.GitCommit=\${GIT_COMMIT} \\" >> build.sh
-          echo "  -X github.com/bishopfox/sliver/client/version.GitDirty=\${GIT_DIRTY} \\" >> build.sh
-          echo "  -X github.com/bishopfox/sliver/client/assets.DefaultArmoryPublicKey=\${ARMORY_PUBLIC_KEY} \\" >> build.sh
-          echo "  -X github.com/bishopfox/sliver/client/assets.DefaultArmoryRepoURL=\${ARMORY_REPO_URL}\"" >> build.sh
-          echo "" >> build.sh
-          echo "# Ensure vendor directory exists" >> build.sh
-          echo "go mod vendor || echo \"Vendor modules already present\"" >> build.sh
-          echo "" >> build.sh
-          echo "# Build the server - using no_assets tag to skip asset embedding" >> build.sh
-          echo "echo \"Building sliver-server for CentOS 5.11 i686...\"" >> build.sh
-          echo "go build -mod=vendor -trimpath -tags \"netgo,osusergo,no_assets,server\" -ldflags \"\${LDFLAGS}\" -o /build/sliver-server-centos5-i686 ./server" >> build.sh
-          echo "" >> build.sh
-          echo "# Compress the binary with UPX" >> build.sh
-          echo "echo \"Compressing the binary...\"" >> build.sh
-          echo "upx -9 /build/sliver-server-centos5-i686" >> build.sh
-          echo "" >> build.sh
-          echo "# Verify build result" >> build.sh
-          echo "file /build/sliver-server-centos5-i686" >> build.sh
-          echo "" >> build.sh
-          echo "# Check if the file exists" >> build.sh
-          echo "ls -la /build/sliver-server-centos5-i686" >> build.sh
-          echo "" >> build.sh
-          echo "# Ensure file has execution permissions" >> build.sh
-          echo "chmod +x /build/sliver-server-centos5-i686" >> build.sh
+          cat > build.sh << 'EOF'
+          #!/bin/sh
+          set -e
+          
+          # 配置Git安全目录
+          git config --global --add safe.directory /build
+          
+          # 设置版本信息
+          export VERSION=$(git describe --abbrev=0 || echo "v0.0.0")
+          export COMPILED_AT=$(date +%s)
+          export RELEASES_URL="https://api.github.com/repos/BishopFox/sliver/releases"
+          export GIT_COMMIT=$(git rev-parse HEAD || echo "unknown")
+          export GIT_DIRTY=$(git diff --quiet || echo 'Dirty')
+          export ARMORY_PUBLIC_KEY="RWSBpxpRWDrD7Fe+VvRE3c2VEDC2NK80rlNCj+BX0gz44Xw07r6KQD9L"
+          export ARMORY_REPO_URL="https://api.github.com/repos/sliverarmory/armory/releases"
+          
+          # 设置构建标志
+          export LDFLAGS="-s -w \
+            -extldflags '-static -Wl,--strip-all' \
+            -X github.com/bishopfox/sliver/client/version.Version=${VERSION} \
+            -X github.com/bishopfox/sliver/client/version.CompiledAt=${COMPILED_AT} \
+            -X github.com/bishopfox/sliver/client/version.GithubReleasesURL=${RELEASES_URL} \
+            -X github.com/bishopfox/sliver/client/version.GitCommit=${GIT_COMMIT} \
+            -X github.com/bishopfox/sliver/client/version.GitDirty=${GIT_DIRTY} \
+            -X github.com/bishopfox/sliver/client/assets.DefaultArmoryPublicKey=${ARMORY_PUBLIC_KEY} \
+            -X github.com/bishopfox/sliver/client/assets.DefaultArmoryRepoURL=${ARMORY_REPO_URL}"
+          
+          # 确保vendor目录存在
+          go mod vendor || echo "Vendor modules already present"
+          
+          # 构建服务器 - 这次使用no_assets标签跳过资产嵌入
+          echo "Building sliver-server for CentOS 5.11 i686..."
+          go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server
+          
+          # 使用UPX进一步压缩二进制文件
+          echo "压缩二进制文件..."
+          upx -9 sliver-server-centos5-i686
+          
+          # 验证构建结果
+          file sliver-server-centos5-i686
+          EOF
           
           # 使脚本可执行
           chmod +x build.sh
           
           # 在Docker容器中运行构建
-          docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && (./build.sh 2>&1 | tee /tmp/build.log) && ls -la /build/ && cp -v /build/sliver-server-centos5-i686 /build/ || (echo '======= BUILD ERROR =======' && cat /tmp/build.log && false)"
-
+          docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && (./build.sh 2>&1 | tee /tmp/build.log) || (echo '======= BUILD ERROR =======' && cat /tmp/build.log && false)"
       - name: Verify patched files
         if: failure()
         run: |
-          echo "Build failed, checking if files were patched correctly:"
+          echo "构建失败，检查修补的文件是否正确："
           
-          echo "Checking defaultMaxFileSize in configs/crack.go:"
-          grep -n "defaultMaxFileSize" ./server/configs/crack.go || echo "defaultMaxFileSize not found"
-          grep -n "10737418240" ./server/configs/crack.go || echo "All integer values have been replaced"
-          grep -n "int64" ./server/configs/crack.go || echo "No int64 conversion found"
+          echo "查看configs/crack.go中的defaultMaxFileSize:"
+          grep -n "defaultMaxFileSize" ./server/configs/crack.go || echo "未找到defaultMaxFileSize"
+          grep -n "10737418240" ./server/configs/crack.go || echo "整数值已全部替换"
+          grep -n "int64" ./server/configs/crack.go || echo "未找到int64转换"
           
-          echo "Showing lines around line 104:"
+          echo "显示lines附近的内容:"
           if [ -f ./server/configs/crack.go ]; then
-            echo "======= Content around line 104 ======="
+            echo "======= 显示第104行附近的内容 ======="
             sed -n '99,110p' ./server/configs/crack.go
           fi
           
-          echo "Checking GetZigDir calls:"
-          grep -n "GetZigDir" ./server/gogo/go.go || echo "No GetZigDir calls found"
+          echo "查看所有GetZigDir调用:"
+          grep -n "GetZigDir" ./server/gogo/go.go || echo "未找到GetZigDir调用"
           
-          echo "Checking GetZigDir function definition in assets.go:"
-          grep -n "func GetZigDir" ./server/assets/assets.go || echo "GetZigDir function not found"
+          echo "检查assets.go中的GetZigDir函数定义:"
+          grep -n "func GetZigDir" ./server/assets/assets.go || echo "未找到GetZigDir函数定义"
           
-          echo "Checking error log:"
-          cat /tmp/build.log || echo "No build log found"
-
+          echo "查看错误输出:"
+          cat /tmp/build.log || echo "没有错误日志"
       - name: Test binary compatibility
         run: |
-          # List files in current directory
-          echo "Files in current directory:"
-          ls -la ./
-          
-          # Verify binary is a statically linked 32-bit executable
-          if [ -f ./sliver-server-centos5-i686 ]; then
-            file ./sliver-server-centos5-i686
-            ldd ./sliver-server-centos5-i686 || echo "Binary is static (expected)"
-          else
-            echo "Binary not found, checking other locations..."
-            find ./ -name "sliver-server-centos5-i686" -type f
-          fi
-      
-      # Ensure file exists with correct permissions
-      - name: Verify file existence and permissions
-        run: |
-          ls -la ./sliver-server-centos5-i686 || echo "Binary not found in expected location"
-          [ -f ./sliver-server-centos5-i686 ] && chmod +x ./sliver-server-centos5-i686
-
+          # 验证二进制文件是否为静态链接的32位可执行文件
+          file sliver-server-centos5-i686
+          ldd sliver-server-centos5-i686 || echo "Binary is static (expected)"
       - name: Upload sliver server
         uses: actions/upload-artifact@v4
         with:
           name: sliver-server-centos5-i686
-          path: |
-            ./sliver-server-centos5-i686
-            /build/sliver-server-centos5-i686
-          if-no-files-found: warn
+          path: sliver-server-centos5-i686
           
       - name: Create README
         run: |
-          echo "# Sliver Server for CentOS 5.11 i686" > README-centos5-i686.md
-          echo "" >> README-centos5-i686.md
-          echo "This build is specifically designed for older CentOS 5.11 i686 systems, with the following build configuration:" >> README-centos5-i686.md
-          echo "" >> README-centos5-i686.md
-          echo "- Based on statically compiled Go application" >> README-centos5-i686.md
-          echo "- Uses Alpine for cross-compilation" >> README-centos5-i686.md
-          echo "- Target system: Linux 2.6.18 kernel, glibc 2.5" >> README-centos5-i686.md
-          echo "- Build features:" >> README-centos5-i686.md
-          echo "  - Static linking (no external dependencies)" >> README-centos5-i686.md
-          echo "  - 32-bit i686 architecture" >> README-centos5-i686.md
-          echo "  - UPX compression to reduce file size" >> README-centos5-i686.md
-          echo "" >> README-centos5-i686.md
-          echo "## Usage" >> README-centos5-i686.md
-          echo "" >> README-centos5-i686.md
-          echo "1. Download the binary file" >> README-centos5-i686.md
-          echo "2. Grant execution permissions: \`chmod +x sliver-server-centos5-i686\`" >> README-centos5-i686.md
-          echo "3. Run the server: \`./sliver-server-centos5-i686\`" >> README-centos5-i686.md
-          echo "" >> README-centos5-i686.md
-          echo "On first run, the server will generate the required configuration files and certificates." >> README-centos5-i686.md
-          echo "" >> README-centos5-i686.md
-          echo "## Feature Limitations" >> README-centos5-i686.md
-          echo "" >> README-centos5-i686.md
-          echo "This version is built with the \`no_assets\` tag, meaning it does not include built-in resource packages (Go, compilers, etc.)." >> README-centos5-i686.md
-          echo "If you need to use implant generation features, please manually place the necessary resources in the appropriate directories." >> README-centos5-i686.md
-          echo "" >> README-centos5-i686.md
-          echo "## Additional Notes" >> README-centos5-i686.md
-          echo "" >> README-centos5-i686.md
-          echo "- This binary is statically compiled, with no system library dependencies" >> README-centos5-i686.md
-          echo "- For best compatibility, it is built using \`-extldflags \"-static\"\`" >> README-centos5-i686.md
-          echo "- UPX compression is used; if you encounter issues, try decompressing it: \`upx -d sliver-server-centos5-i686\`" >> README-centos5-i686.md
-
+          cat > README-centos5-i686.md << 'EOF'
+          # Sliver Server for CentOS 5.11 i686
+          此构建专为老旧的CentOS 5.11 i686系统设计，构建设置如下：
+          - 基于静态编译的Go应用程序
+          - 使用Alpine进行交叉编译
+          - 目标系统：Linux 2.6.18内核，glibc 2.5
+          - 构建特性：
+            - 静态链接（无外部依赖）
+            - 32位i686架构
+            - 使用UPX压缩以减小体积
+          ## 使用方法
+          1. 下载二进制文件
+          2. 赋予执行权限：`chmod +x sliver-server-centos5-i686`
+          3. 运行服务器：`./sliver-server-centos5-i686`
+          首次运行时，服务器将生成所需的配置文件和证书。
+          
+          ## 功能限制
+          此版本使用了`no_assets`标签构建，意味着没有内置资源包（Go、编译器等）。
+          如果需要使用implant生成功能，请将必要的资源手动放置在相应目录中。
+          
+          ## 注意事项
+          
+          - 此二进制文件已经过静态编译，不依赖系统库
+          - 为保证最佳兼容性，使用`-extldflags '-static'`构建
+          - 使用UPX压缩，如运行时遇到问题，可尝试解压缩：`upx -d sliver-server-centos5-i686`
+          EOF
       - name: Upload README
         uses: actions/upload-artifact@v4
         with:
