@@ -241,6 +241,24 @@ jobs:
             sed -i 's/const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024/const defaultMaxFileSize int64 = 10 \* 1024 \* 1024 \* 1024/g' ./server/configs/crack.go
             sed -i 's/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g' ./server/configs/crack.go
             
+            # 确保没有拼写错误
+            # 检查是否有int6464错误并修正
+            if grep -q "int6464" ./server/configs/crack.go; then
+              echo "发现拼写错误，将int6464修正为int64"
+              sed -i 's/int6464/int64/g' ./server/configs/crack.go
+            fi
+            
+            # 专门检查defaultMaxDiskUsage类型定义是否正确
+            echo "验证defaultMaxDiskUsage类型定义是否正确..."
+            if ! grep -q "const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize" ./server/configs/crack.go; then
+              echo "defaultMaxDiskUsage类型仍然有问题，使用更精确的替换"
+              # 先备份当前文件
+              cp ./server/configs/crack.go ./server/configs/crack.go.fix
+              # 尝试多种替换方式
+              sed -i 's/const defaultMaxDiskUsage.*= 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g' ./server/configs/crack.go
+              sed -i 's/int6464/int64/g' ./server/configs/crack.go
+            fi
+            
             # 2. 修复结构体字段的类型
             sed -i 's/MaxFileSize  int/MaxFileSize  int64/g' ./server/configs/crack.go
             sed -i 's/MaxDiskUsage int/MaxDiskUsage int64/g' ./server/configs/crack.go
@@ -282,6 +300,15 @@ jobs:
           fi
       - name: Build Sliver for CentOS 5.11
         run: |
+          # 额外的预构建检查
+          echo "执行最后的预构建检查..."
+          if grep -q "int6464" ./server/configs/crack.go; then
+            echo "发现int6464拼写错误，修复为int64..."
+            sed -i 's/int6464/int64/g' ./server/configs/crack.go
+            echo "修复后:"
+            grep -n "defaultMaxDiskUsage" ./server/configs/crack.go
+          fi
+          
           # 创建build.sh脚本
           echo '#!/bin/sh' > build.sh
           echo 'set -e' >> build.sh
@@ -331,6 +358,11 @@ jobs:
           echo '  sed -i '"'"'s/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g'"'"' ./server/configs/crack.go' >> build.sh
           echo '  sed -i '"'"'s/MaxFileSize  int/MaxFileSize  int64/g'"'"' ./server/configs/crack.go' >> build.sh
           echo '  sed -i '"'"'s/MaxDiskUsage int/MaxDiskUsage int64/g'"'"' ./server/configs/crack.go' >> build.sh
+          echo '  # 修复可能的类型拼写错误' >> build.sh
+          echo '  if grep -q "int6464" ./server/configs/crack.go; then' >> build.sh
+          echo '    echo "发现int6464拼写错误，修正为int64"' >> build.sh
+          echo '    sed -i '"'"'s/int6464/int64/g'"'"' ./server/configs/crack.go' >> build.sh
+          echo '  fi' >> build.sh
           echo '' >> build.sh
           echo '  echo "应用紧急修复后，再次检查："' >> build.sh
           echo '  grep -n "defaultMaxFileSize" ./server/configs/crack.go' >> build.sh
@@ -338,7 +370,23 @@ jobs:
           
           echo '# 构建服务器 - 这次使用no_assets标签跳过资产嵌入' >> build.sh
           echo 'echo "Building sliver-server for CentOS 5.11 i686..."' >> build.sh
-          echo 'go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server' >> build.sh
+          echo 'echo "使用的构建标签: netgo,osusergo,no_assets,server"' >> build.sh
+          echo 'echo "使用的ldflags: ${LDFLAGS}"' >> build.sh
+          echo 'set -x  # 开启详细输出模式' >> build.sh
+          echo 'go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server || {' >> build.sh
+          echo '  echo "构建失败，检查错误:" >&2' >> build.sh
+          echo '  # 检查常见错误' >> build.sh
+          echo '  if grep -q "int6464" ./server/configs/crack.go; then' >> build.sh
+          echo '    echo "发现int6464拼写错误，重新尝试修复:" >&2' >> build.sh
+          echo '    sed -i '"'"'s/int6464/int64/g'"'"' ./server/configs/crack.go' >> build.sh
+          echo '    # 再次尝试构建' >> build.sh
+          echo '    echo "重新尝试构建..." >&2' >> build.sh
+          echo '    go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server' >> build.sh
+          echo '  else' >> build.sh
+          echo '    exit 1  # 如果不是拼写错误，则失败退出' >> build.sh
+          echo '  fi' >> build.sh
+          echo '}' >> build.sh
+          echo 'set +x  # 关闭详细输出模式' >> build.sh
           
           echo '# 使用UPX进一步压缩二进制文件' >> build.sh
           echo 'echo "压缩二进制文件..."' >> build.sh
@@ -366,6 +414,25 @@ jobs:
           echo "构建日志输出:"
           cat build.log || echo "No build log found"
           
+          # 如果失败，检查文件内容并尝试直接修复
+          if [ ! -f "./sliver-server-centos5-i686" ]; then
+            echo "Build failed, checking configs/crack.go for errors..."
+            
+            # 直接修复所有可能的int6464错误
+            if grep -q "int6464" ./server/configs/crack.go; then
+              echo "发现int6464拼写错误，直接修复为int64"
+              sed -i 's/int6464/int64/g' ./server/configs/crack.go
+              
+              # 显示修复后的内容
+              echo "修复后的内容:"
+              grep -n "defaultMaxDiskUsage" ./server/configs/crack.go
+              
+              # 尝试直接在当前环境编译
+              echo "在主环境中尝试重新编译..."
+              docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && sed -i 's/int6464/int64/g' ./server/configs/crack.go && go build -mod=vendor -trimpath -tags netgo,osusergo,no_assets,server -ldflags '-s -w -extldflags \"-static -Wl,--strip-all\"' -o sliver-server-centos5-i686 ./server"
+            fi
+          fi
+      
       - name: Prepare binary for upload
         run: |
           echo "确认二进制文件存在:"
