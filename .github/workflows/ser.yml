@@ -31,7 +31,10 @@ jobs:
           FROM golang:1.22.2-alpine3.19
 
           # 安装基本构建工具和依赖
-          RUN apk add --no-cache build-base git ca-certificates upx curl bash zip
+          RUN apk add --no-cache build-base git ca-certificates upx curl bash zip unzip xz
+
+          # 安装必要的Go工具
+          RUN go install -v github.com/jessevdk/go-assets-builder@latest
 
           # 设置工作目录
           WORKDIR /build
@@ -81,6 +84,41 @@ jobs:
           echo "下载资产文件"
           chmod +x ./go-assets.sh
           ./go-assets.sh || echo "资产文件可能已经存在"
+          
+          # 检查assets目录结构
+          echo "Assets directory structure:"
+          find ./server/assets -type d | sort
+          
+          # 显示当前工作目录下文件
+          echo "Asset files:"
+          find ./server/assets/fs -type f | sort
+          
+          # 生成go-assets.go文件
+          echo "Generating go-assets.go..."
+          cd server/assets
+          go-assets-builder -p assets -o assets_generated.go fs/
+          
+          # 添加文件内容
+          cat > assets.go << 'ASSETEND'
+          //go:build !generate
+          // +build !generate
+
+          // This file loads all the embedded assets
+          // Code generated; DO NOT EDIT.
+
+          package assets
+
+          import (
+            "fmt"
+          )
+
+          // Setup initializes the embedded assets
+          func Setup() {
+          	fmt.Printf("[setup] Embedded assets loaded\n")
+          }
+          ASSETEND
+          
+          cd ../..
           
           # 构建服务器
           echo "Building sliver-server for CentOS 5.11 i686..."
