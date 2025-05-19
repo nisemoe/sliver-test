@@ -45,54 +45,15 @@ jobs:
           # 创建目录结构
           mkdir -p ./server/assets/
           
-          # 修复 server/gogo/go.go 中的 GetZigDir 调用
-          if [ -f ./server/gogo/go.go ]; then
-            # 替换所有没有参数的 GetZigDir 调用，添加 GOOS 和 GOARCH 参数
-            sed -i 's/GetZigDir()/GetZigDir("linux", "386")/g' ./server/gogo/go.go
-            
-            # 打印修改后的文件，检查是否正确替换
-            echo "检查修改后的 gogo/go.go 文件:"
-            grep -n "GetZigDir" ./server/gogo/go.go
+          # 检查是否已经应用了修复
+          if [ -f .overflow_fixed ]; then
+            echo "已应用整数溢出修复，无需再次修复"
           fi
           
-          # 修复 configs/crack.go 中的整数溢出问题
-          if [ -f ./server/configs/crack.go ]; then
-            # 使用更全面的替换方式，确保所有10737418240都被替换
-            # 将文件内容保存到临时文件
-            cat ./server/configs/crack.go > temp_crack.go
-            
-            # 替换所有出现的10737418240
-            sed -i 's/10737418240/int64(10737418240)/g' temp_crack.go
-            
-            # 修复可能的double cast，如int64(int64(10737418240))
-            sed -i 's/int64(int64(/int64(/g' temp_crack.go
-            sed -i 's/))/)/g' temp_crack.go
-            
-            # 打印104行附近的内容进行检查
-            echo "修改前第104行附近内容："
-            sed -n '99,110p' ./server/configs/crack.go
-            
-            echo "修改后第104行附近内容："
-            sed -n '99,110p' temp_crack.go
-            
-            # 如果替换成功，则覆盖原文件
-            cp temp_crack.go ./server/configs/crack.go
-            
-            # 打印修改后的文件，检查是否正确替换
-            echo "检查修改后的 configs/crack.go 文件:"
-            grep -n "10737418240" ./server/configs/crack.go || echo "整数值已全部替换"
-            grep -n "int64(10737418240)" ./server/configs/crack.go || echo "未找到int64转换"
-            
-            # 确保在构建脚本中记录这个文件的修改
-            echo "=== crack.go has been patched ===" > /tmp/crack_patched
+          if [ -f .zigdir_fixed ]; then
+            echo "已应用GetZigDir调用修复，无需再次修复"
           fi
           
-          # 检查缺失的函数
-          grep -n "setupLog" ./server/assets/assets-helpers.go || echo "setupLog not found"
-          grep -n "GetTrafficEncoderDir" ./server/assets/assets-helpers.go || echo "GetTrafficEncoderDir not found"
-          grep -n "GoDirName" ./server/assets/assets-helpers.go || echo "GoDirName not found"
-          grep -n "GetRootAppDir" ./server/assets/assets-helpers.go || echo "GetRootAppDir not found"
-          grep -n "GetZigDir" ./server/assets/assets-helpers.go || echo "GetZigDir not found"
           # 创建补丁文件以修复缺少的函数
           cat > assets-patch.sh << 'EOF'
           #!/bin/bash
@@ -259,12 +220,83 @@ jobs:
           # 使脚本可执行并运行它
           chmod +x assets-patch.sh
           ./assets-patch.sh
+          
+          # 创建标记文件表示修复完成
+          echo "=== assets.go has been patched ===" > /tmp/assets_patched
+      - name: Apply critical fixes for 32-bit build
+        run: |
+          # 检查和修复configs/crack.go的整数溢出问题
+          echo "检查configs/crack.go是否需要修复..."
+          if grep -q "const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024" ./server/configs/crack.go; then
+            echo "发现defaultMaxFileSize可能导致32位溢出，需要修复..."
+            
+            # 创建修复脚本
+            cat > fix_overflow.sh << 'EOFIXSCRIPT'
+            #!/bin/bash
+            # 备份原始文件
+            cp ./server/configs/crack.go ./server/configs/crack.go.bak
+            
+            # 1. 修复整数常量定义为int64类型
+            sed -i 's/const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024/const defaultMaxFileSize int64 = 10 \* 1024 \* 1024 \* 1024/g' ./server/configs/crack.go
+            sed -i 's/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g' ./server/configs/crack.go
+            
+            # 2. 修复结构体字段的类型
+            sed -i 's/MaxFileSize  int/MaxFileSize  int64/g' ./server/configs/crack.go
+            sed -i 's/MaxDiskUsage int/MaxDiskUsage int64/g' ./server/configs/crack.go
+            
+            # 3. 修复任何函数参数类型声明
+            sed -i 's/MaxFileSize int /MaxFileSize int64 /g' ./server/configs/crack.go
+            sed -i 's/MaxDiskUsage int /MaxDiskUsage int64 /g' ./server/configs/crack.go
+            EOFIXSCRIPT
+            
+            # 执行修复
+            chmod +x fix_overflow.sh
+            ./fix_overflow.sh
+            
+            # 显示修复结果
+            echo "------------------------------"
+            echo "修复后的文件内容概览："
+            echo "------------------------------"
+            grep -n "defaultMaxFileSize" ./server/configs/crack.go
+            grep -n "defaultMaxDiskUsage" ./server/configs/crack.go
+            grep -n "MaxFileSize" ./server/configs/crack.go
+            grep -n "MaxDiskUsage" ./server/configs/crack.go
+            echo "------------------------------"
+            
+            # 创建标记文件供后续步骤检查
+            echo "已应用整数溢出修复" > .overflow_fixed
+          else
+            echo "未发现需要修复的代码模式，跳过修复"
+          fi
+          
+          # 检查和修复gogo/go.go中的GetZigDir调用
+          echo "检查gogo/go.go中的GetZigDir调用..."
+          if [ -f ./server/gogo/go.go ] && grep -q "GetZigDir()" ./server/gogo/go.go; then
+            echo "发现无参数的GetZigDir调用，需要修复..."
+            sed -i 's/GetZigDir()/GetZigDir("linux", "386")/g' ./server/gogo/go.go
+            
+            # 显示修复结果
+            echo "修复后的GetZigDir调用："
+            grep -n "GetZigDir" ./server/gogo/go.go
+            
+            # 创建标记文件供后续步骤检查
+            echo "已应用GetZigDir修复" > .zigdir_fixed
+          else
+            echo "未发现需要修复的GetZigDir调用，或文件不存在"
+          fi
       - name: Build Sliver for CentOS 5.11
         run: |
           # 创建build.sh脚本
           cat > build.sh << 'EOF'
           #!/bin/sh
           set -e
+          
+          # 检查是否有补丁文件需要应用
+          if [ -f "/tmp/crack_patched" ]; then
+            echo "已应用配置文件补丁，继续构建..."
+          else
+            echo "警告：没有找到配置补丁标记，请确保已运行修复脚本"
+          fi
           
           # 配置Git安全目录
           git config --global --add safe.directory /build
@@ -291,6 +323,23 @@ jobs:
           
           # 确保vendor目录存在
           go mod vendor || echo "Vendor modules already present"
+          
+          # 确认配置文件修正已应用
+          echo "检查configs/crack.go的修改："
+          if grep -q "defaultMaxFileSize int64" ./server/configs/crack.go; then
+            echo "✓ 已成功应用int64类型修复"
+          else
+            echo "⚠️ 警告：未找到int64类型声明，尝试现在应用修复"
+            
+            # 紧急修复措施
+            sed -i 's/const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024/const defaultMaxFileSize int64 = 10 \* 1024 \* 1024 \* 1024/g' ./server/configs/crack.go
+            sed -i 's/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g' ./server/configs/crack.go
+            sed -i 's/MaxFileSize  int/MaxFileSize  int64/g' ./server/configs/crack.go
+            sed -i 's/MaxDiskUsage int/MaxDiskUsage int64/g' ./server/configs/crack.go
+            
+            echo "应用紧急修复后，再次检查："
+            grep -n "defaultMaxFileSize" ./server/configs/crack.go
+          fi
           
           # 构建服务器 - 这次使用no_assets标签跳过资产嵌入
           echo "Building sliver-server for CentOS 5.11 i686..."
