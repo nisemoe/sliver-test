@@ -319,6 +319,43 @@ jobs:
             grep -A 10 "func init" ./server/encoders/encoders.go
           fi
           
+          # 修复generate/binaries.go中的问题
+          echo "检查generate/binaries.go中的问题..."
+          if [ -f ./server/generate/binaries.go ]; then
+            echo "修复binaries.go中的assets.English调用和GetZigDir调用..."
+            
+            # 备份原始文件
+            cp ./server/generate/binaries.go ./server/generate/binaries.go.bak
+            
+            # 修复assets.English()调用
+            sed -i '/assets.English(/c\	\/\/ 在no_assets模式下禁用\n	\/\/ English词典在no_assets模式下不可用' ./server/generate/binaries.go
+            
+            # 修复GetZigDir()调用，添加参数
+            sed -i 's/assets.GetZigDir()/assets.GetZigDir("linux", "386")/g' ./server/generate/binaries.go
+            
+            # 打印结果
+            echo "修复后的GetZigDir调用:"
+            grep -n "GetZigDir" ./server/generate/binaries.go
+          fi
+          
+          # 修复loot.go中的类型不匹配问题
+          echo "检查loot.go中的类型不匹配问题..."
+          if grep -q "MaxLootSize int64" ./server/loot/loot.go; then
+            echo "修复loot.go中的类型比较问题..."
+            
+            # 备份原始文件(如果之前没有备份的话)
+            if [ ! -f ./server/loot/loot.go.bak ]; then
+              cp ./server/loot/loot.go ./server/loot/loot.go.bak
+            fi
+            
+            # 修复类型比较，将len(lootReq.File.Data)转换为int64
+            sed -i 's/MaxLootSize < len(lootReq.File.Data)/MaxLootSize < int64(len(lootReq.File.Data))/g' ./server/loot/loot.go
+            
+            # 打印结果
+            echo "修复后的类型比较:"
+            grep -n "MaxLootSize.*len" ./server/loot/loot.go
+          fi
+          
           # 检查和修复gogo/go.go中的GetZigDir调用
           echo "检查gogo/go.go中的GetZigDir调用..."
           if [ -f ./server/gogo/go.go ] && grep -q "GetZigDir()" ./server/gogo/go.go; then
@@ -437,10 +474,25 @@ jobs:
           echo '  fi' >> build.sh
           echo '' >> build.sh
           
+          echo '  # 修复loot.go中的类型不匹配问题' >> build.sh
+          echo '  if grep -q "MaxLootSize int64" ./server/loot/loot.go; then' >> build.sh
+          echo '    echo "修复loot.go中的类型比较问题..."' >> build.sh
+          echo '    sed -i '"'"'s/MaxLootSize < len(lootReq.File.Data)/MaxLootSize < int64(len(lootReq.File.Data))/g'"'"' ./server/loot/loot.go' >> build.sh
+          echo '  fi' >> build.sh
+          echo '' >> build.sh
+          
           echo '  # 修复assets.English()未定义问题' >> build.sh
           echo '  if grep -q "assets.English(" ./server/encoders/encoders.go; then' >> build.sh
           echo '    echo "修复assets.English()在no_assets模式下未定义的问题..."' >> build.sh
           echo '    sed -i '"'"'/util.SetEnglishDictionary(assets.English())/c\\t\/\/ util.SetEnglishDictionary 在no_assets模式下禁用\\n\\t\/\/ util.SetEnglishDictionary(assets.English())'"'"' ./server/encoders/encoders.go' >> build.sh
+          echo '  fi' >> build.sh
+          echo '' >> build.sh
+          
+          echo '  # 修复binaries.go中的问题' >> build.sh
+          echo '  if [ -f ./server/generate/binaries.go ]; then' >> build.sh
+          echo '    echo "修复binaries.go中的assets.English调用和GetZigDir调用..."' >> build.sh
+          echo '    sed -i '"'"'/assets.English(/c\\t\/\/ 在no_assets模式下禁用\\n\\t\/\/ English词典在no_assets模式下不可用'"'"' ./server/generate/binaries.go' >> build.sh
+          echo '    sed -i '"'"'s/assets.GetZigDir()/assets.GetZigDir("linux", "386")/g'"'"' ./server/generate/binaries.go' >> build.sh
           echo '  fi' >> build.sh
           echo '' >> build.sh
           
@@ -453,7 +505,7 @@ jobs:
           echo 'echo "使用的构建标签: netgo,osusergo,no_assets,server,go_sqlite"' >> build.sh
           echo 'echo "使用的ldflags: ${LDFLAGS}"' >> build.sh
           echo 'set -x  # 开启详细输出模式' >> build.sh
-          echo 'go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server,go_sqlite" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server || {' >> build.sh
+          echo 'go build -buildvcs=false -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server,go_sqlite" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server || {' >> build.sh
           echo '  echo "构建失败，检查错误:" >&2' >> build.sh
           echo '  # 检查常见错误' >> build.sh
           echo '  if grep -q "int6464" ./server/configs/crack.go; then' >> build.sh
@@ -461,7 +513,7 @@ jobs:
           echo '    sed -i '"'"'s/int6464/int64/g'"'"' ./server/configs/crack.go' >> build.sh
           echo '    # 再次尝试构建' >> build.sh
           echo '    echo "重新尝试构建..." >&2' >> build.sh
-          echo '    go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server,go_sqlite" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server' >> build.sh
+          echo '    go build -buildvcs=false -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server,go_sqlite" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server' >> build.sh
           echo '  else' >> build.sh
           echo '    exit 1  # 如果不是拼写错误，则失败退出' >> build.sh
           echo '  fi' >> build.sh
@@ -516,7 +568,10 @@ jobs:
               sed -i 's/const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024/const defaultMaxFileSize int64 = 10 \* 1024 \* 1024 \* 1024/g' ./server/configs/crack.go && \
               sed -i 's/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g' ./server/configs/crack.go && \
               sed -i 's/MaxLootSize = 2 \* 1024 \* 1024 \* 1024/MaxLootSize int64 = 2 \* 1024 \* 1024 \* 1024/g' ./server/loot/loot.go && \
+              sed -i 's/MaxLootSize < len(lootReq.File.Data)/MaxLootSize < int64(len(lootReq.File.Data))/g' ./server/loot/loot.go && \
               sed -i '/util.SetEnglishDictionary(assets.English())/c\\t\\/\\/ util.SetEnglishDictionary 在no_assets模式下禁用\\n\\t\\/\\/ util.SetEnglishDictionary(assets.English())' ./server/encoders/encoders.go && \
+              ([ -f ./server/generate/binaries.go ] && sed -i '/assets.English(/c\\t\\/\\/ 在no_assets模式下禁用\\n\\t\\/\\/ English词典在no_assets模式下不可用' ./server/generate/binaries.go || echo '没有binaries.go文件') && \
+              ([ -f ./server/generate/binaries.go ] && sed -i 's/assets.GetZigDir()/assets.GetZigDir(\"linux\", \"386\")/g' ./server/generate/binaries.go || echo '没有binaries.go文件') && \
               echo '显示修复后的文件:' && \
               echo '=== loot.go ===' && \
               grep -n 'MaxLootSize' ./server/loot/loot.go && \
@@ -524,8 +579,9 @@ jobs:
               grep -A 5 'func init' ./server/encoders/encoders.go && \
               echo '=== crack.go ===' && \
               grep -n 'defaultMaxFileSize\|defaultMaxDiskUsage' ./server/configs/crack.go && \
+              ([ -f ./server/generate/binaries.go ] && echo '=== binaries.go ===' && grep -n 'GetZigDir\|English' ./server/generate/binaries.go || echo '没有binaries.go文件') && \
               echo '开始构建...' && \
-              go build -mod=vendor -trimpath -tags netgo,osusergo,no_assets,server,go_sqlite -ldflags '-s -w -extldflags \"-static -Wl,--strip-all\"' -o sliver-server-centos5-i686 ./server || { \
+              go build -buildvcs=false -mod=vendor -trimpath -tags netgo,osusergo,no_assets,server,go_sqlite -ldflags '-s -w -extldflags \"-static -Wl,--strip-all\"' -o sliver-server-centos5-i686 ./server || { \
                 echo '构建失败，显示更多调试信息:' && \
                 grep -n 'MaxLootSize' ./server/loot/loot.go && \
                 grep -A 10 'func init' ./server/encoders/encoders.go && \
