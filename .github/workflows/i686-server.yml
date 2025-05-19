@@ -50,10 +50,17 @@ jobs:
           # 创建目录结构
           mkdir -p ./server/assets/
           
-          # 检查assets-helpers.go的内容
+          # 检查缺失的函数
           grep -n "setupLog" ./server/assets/assets-helpers.go || echo "setupLog not found"
           grep -n "GetTrafficEncoderDir" ./server/assets/assets-helpers.go || echo "GetTrafficEncoderDir not found"
           grep -n "GoDirName" ./server/assets/assets-helpers.go || echo "GoDirName not found"
+          grep -n "GetRootAppDir" ./server/assets/assets-helpers.go || echo "GetRootAppDir not found"
+          grep -n "GetZigDir" ./server/assets/assets-helpers.go || echo "GetZigDir not found"
+
+          # 修复configs/crack.go中的溢出问题
+          if [ -f ./server/configs/crack.go ]; then
+            sed -i 's/10737418240/int64(10737418240)/g' ./server/configs/crack.go
+          fi
           
           # 创建补丁文件以修复缺少的函数
           cat > assets-patch.sh << 'EOF'
@@ -84,11 +91,14 @@ jobs:
             "os"
             "path/filepath"
             "log"
+            "runtime"
+            "strings"
           )
           
           // 定义常量
           const (
             GoDirName = "go"
+            ZigDirName = "zig"
           )
           
           // 自定义日志记录器
@@ -161,6 +171,25 @@ jobs:
               return filepath.Join(".", "traffic-encoders")
           }
           
+          // GetRootAppDir - 获取应用程序根目录
+          func GetRootAppDir() string {
+              exePath, err := os.Executable()
+              if err != nil {
+                  setupLog.Errorf("Failed to get executable path: %s", err)
+                  return "."
+              }
+              return filepath.Dir(exePath)
+          }
+          
+          // GetZigDir - 获取Zig目录
+          func GetZigDir(targetOS string, targetArch string) string {
+              zigDir := filepath.Join(GetRootAppDir(), ".sliver-client", "zig")
+              if _, err := os.Stat(zigDir); os.IsNotExist(err) {
+                  os.MkdirAll(zigDir, 0700)
+              }
+              return zigDir
+          }
+          
           // 定义assetsFs变量
           var assetsFs = &AssetFS{
               Asset:    Asset,
@@ -198,7 +227,7 @@ jobs:
           }
           
           func GetZigPath(goOS string, goArch string) string {
-              return filepath.Join(".", "zig", goOS, goArch)
+              return filepath.Join(".", ZigDirName, goOS, goArch)
           }
           EOFILE
           
