@@ -62,14 +62,34 @@ jobs:
           
           # 修复 configs/crack.go 中的整数溢出问题
           if [ -f ./server/configs/crack.go ]; then
-            sed -i 's/defaultMaxFileSize := 10737418240/defaultMaxFileSize := int64(10737418240)/g' ./server/configs/crack.go
-            sed -i 's/defaultMaxFileSize = 10737418240/defaultMaxFileSize = int64(10737418240)/g' ./server/configs/crack.go
-            sed -i 's/: 10737418240,/: int64(10737418240),/g' ./server/configs/crack.go
-            sed -i 's/10737418240)/int64(10737418240))/g' ./server/configs/crack.go
+            # 使用更全面的替换方式，确保所有10737418240都被替换
+            # 将文件内容保存到临时文件
+            cat ./server/configs/crack.go > temp_crack.go
+            
+            # 替换所有出现的10737418240
+            sed -i 's/10737418240/int64(10737418240)/g' temp_crack.go
+            
+            # 修复可能的double cast，如int64(int64(10737418240))
+            sed -i 's/int64(int64(/int64(/g' temp_crack.go
+            sed -i 's/))/)/g' temp_crack.go
+            
+            # 打印104行附近的内容进行检查
+            echo "修改前第104行附近内容："
+            sed -n '99,110p' ./server/configs/crack.go
+            
+            echo "修改后第104行附近内容："
+            sed -n '99,110p' temp_crack.go
+            
+            # 如果替换成功，则覆盖原文件
+            cp temp_crack.go ./server/configs/crack.go
             
             # 打印修改后的文件，检查是否正确替换
             echo "检查修改后的 configs/crack.go 文件:"
             grep -n "10737418240" ./server/configs/crack.go || echo "整数值已全部替换"
+            grep -n "int64(10737418240)" ./server/configs/crack.go || echo "未找到int64转换"
+            
+            # 确保在构建脚本中记录这个文件的修改
+            echo "=== crack.go has been patched ===" > /tmp/crack_patched
           fi
           
           # 检查缺失的函数
@@ -308,7 +328,7 @@ jobs:
           chmod +x build.sh
           
           # 在Docker容器中运行构建
-          docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && ./build.sh 2>/tmp/build_error.log || (cat /tmp/build_error.log && false)"
+          docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && (./build.sh 2>&1 | tee /tmp/build.log) || (echo '======= BUILD ERROR =======' && cat /tmp/build.log && false)"
 
       - name: Verify patched files
         if: failure()
@@ -318,6 +338,13 @@ jobs:
           echo "查看configs/crack.go中的defaultMaxFileSize:"
           grep -n "defaultMaxFileSize" ./server/configs/crack.go || echo "未找到defaultMaxFileSize"
           grep -n "10737418240" ./server/configs/crack.go || echo "整数值已全部替换"
+          grep -n "int64" ./server/configs/crack.go || echo "未找到int64转换"
+          
+          echo "显示lines附近的内容:"
+          if [ -f ./server/configs/crack.go ]; then
+            echo "======= 显示第104行附近的内容 ======="
+            sed -n '99,110p' ./server/configs/crack.go
+          fi
           
           echo "查看所有GetZigDir调用:"
           grep -n "GetZigDir" ./server/gogo/go.go || echo "未找到GetZigDir调用"
@@ -326,7 +353,7 @@ jobs:
           grep -n "func GetZigDir" ./server/assets/assets.go || echo "未找到GetZigDir函数定义"
           
           echo "查看错误输出:"
-          cat /tmp/build_error.log || echo "没有错误日志"
+          cat /tmp/build.log || echo "没有错误日志"
 
       - name: Test binary compatibility
         run: |
