@@ -20,23 +20,18 @@ jobs:
       - name: Set up Docker
         uses: docker/setup-buildx-action@v2
         
-      - name: Ensure assets script is executable
-        run: |
-          chmod +x go-assets.sh
-          ls -la go-assets.sh
-
       - name: Create Dockerfile for Alpine
         run: |
           cat > Dockerfile.alpine << 'EOF'
           FROM golang:1.22.2-alpine3.19
 
-          # 安装基本构建工具和依赖
+          # Install basic build tools and dependencies
           RUN apk add --no-cache build-base git ca-certificates upx curl bash zip unzip xz
 
-          # 设置工作目录
+          # Set working directory
           WORKDIR /build
 
-          # 设置环境变量
+          # Set environment variables
           ENV CGO_ENABLED=0
           ENV GOOS=linux
           ENV GOARCH=386
@@ -47,20 +42,20 @@ jobs:
 
       - name: Prepare patched asset files
         run: |
-          # 创建目录结构
+          # Create directory structure
           mkdir -p ./server/assets/
           
-          # 修复 server/gogo/go.go 中的 GetZigDir 调用
+          # Fix GetZigDir() calls in server/gogo/go.go
           if [ -f ./server/gogo/go.go ]; then
-            # 替换所有没有参数的 GetZigDir 调用，添加 GOOS 和 GOARCH 参数
+            # Replace all calls without parameters, add GOOS and GOARCH parameters
             sed -i 's/GetZigDir()/GetZigDir("linux", "386")/g' ./server/gogo/go.go
             
-            # 打印修改后的文件，检查是否正确替换
-            echo "检查修改后的 gogo/go.go 文件:"
+            # Print modified file to verify replacement
+            echo "Checking modified gogo/go.go file:"
             grep -n "GetZigDir" ./server/gogo/go.go
           fi
           
-          # 直接创建一个本地补丁脚本来修复 configs/crack.go 的整数溢出问题
+          # Create patch script to fix integer overflow in configs/crack.go
           cat > fix_crack.sh << 'EOF'
 #!/bin/bash
 set -e
@@ -111,11 +106,11 @@ grep -n "defaultMaxFileSize" ./server/configs/crack.go
 grep -n "10737418240" ./server/configs/crack.go || echo "All integer values have been replaced"
 EOF
           
-          # 使脚本可执行并运行它
+          # Make script executable and run it
           chmod +x fix_crack.sh
           ./fix_crack.sh
           
-          # 终极解决方案：如果所有替换方法都失败，直接创建一个新的没有问题的文件
+          # Ultimate solution: if all replacement methods fail, create a new file without issues
           if [ -f ./server/configs/crack.go ]; then
             echo "Creating a backup crack.go file with fixed integer types"
             cat > crack_fixed.go << 'EOFILE'
@@ -406,202 +401,6 @@ func GetRootAppDir() string {
 func mk(dir string) {
 	os.MkdirAll(dir, 0o700)
 }
-EOFILE
-            
-            # 替换原始文件
-            cp crack_fixed.go ./server/configs/crack.go
-            
-            echo "Displaying replaced content:"
-            grep -n "10737418240" ./server/configs/crack.go
-            grep -n "defaultMaxFileSize" ./server/configs/crack.go
-          fi
-          
-          # 检查缺失的函数
-          grep -n "setupLog" ./server/assets/assets-helpers.go || echo "setupLog not found"
-          grep -n "GetTrafficEncoderDir" ./server/assets/assets-helpers.go || echo "GetTrafficEncoderDir not found"
-          grep -n "GoDirName" ./server/assets/assets-helpers.go || echo "GoDirName not found"
-          grep -n "GetRootAppDir" ./server/assets/assets-helpers.go || echo "GetRootAppDir not found"
-          grep -n "GetZigDir" ./server/assets/assets-helpers.go || echo "GetZigDir not found"
-
-          # 创建补丁文件以修复缺少的函数
-          cat > assets-patch.sh << 'EOF'
-          #!/bin/bash
-          set -e
-          
-          # 创建assets_generate.go文件
-          cat > ./server/assets/assets_generate.go << 'EOFILE'
-          //go:build generate
-          // +build generate
-
-          package assets
-
-          // 这个文件用于go generate命令，但我们在编译时使用no_assets标签跳过它
-          // 此文件不包含实际功能，仅为了满足编译要求
-          EOFILE
-          
-          # 创建带有所有必要函数的assets.go文件
-          cat > ./server/assets/assets.go << 'EOFILE'
-          //go:build !generate && no_assets
-          // +build !generate,no_assets
-
-          package assets
-
-          import (
-            "errors"
-            "io/fs"
-            "os"
-            "path/filepath"
-            "log"
-          )
-          
-          // 定义常量
-          const (
-            GoDirName = "go"
-            ZigDirName = "zig"
-          )
-          
-          // 自定义日志记录器
-          type Logger struct {
-              stdLogger *log.Logger
-          }
-
-          func (l *Logger) Info(args ...interface{}) {
-              l.stdLogger.Println(args...)
-          }
-
-          func (l *Logger) Infof(format string, args ...interface{}) {
-              l.stdLogger.Printf(format, args...)
-          }
-
-          func (l *Logger) Warn(args ...interface{}) {
-              l.stdLogger.Println("[WARN]", args)
-          }
-
-          func (l *Logger) Warnf(format string, args ...interface{}) {
-              l.stdLogger.Printf("[WARN] "+format, args...)
-          }
-
-          func (l *Logger) Error(args ...interface{}) {
-              l.stdLogger.Println("[ERROR]", args)
-          }
-
-          func (l *Logger) Errorf(format string, args ...interface{}) {
-              l.stdLogger.Printf("[ERROR] "+format, args...)
-          }
-
-          func (l *Logger) Debug(args ...interface{}) {
-              l.stdLogger.Println("[DEBUG]", args)
-          }
-
-          func (l *Logger) Debugf(format string, args ...interface{}) {
-              l.stdLogger.Printf("[DEBUG] "+format, args...)
-          }
-          
-          // 创建自定义日志记录器实例
-          var setupLog = &Logger{
-              stdLogger: log.New(os.Stderr, "assets: ", log.LstdFlags),
-          }
-          
-          // Setup - 初始化资产
-          func Setup() {
-              setupLog.Infof("[assets] Skip loading embedded assets (using no_assets tag)")
-          }
-          
-          // Asset - 实现Asset函数
-          func Asset(name string) ([]byte, error) {
-              setupLog.Debugf("Asset called for %s (not implemented in no_assets build)", name)
-              return []byte{}, errors.New("assets not available in this build")
-          }
-          
-          // AssetDir - 实现AssetDir函数
-          func AssetDir(name string) ([]string, error) {
-              setupLog.Debugf("AssetDir called for %s (not implemented in no_assets build)", name)
-              return []string{}, errors.New("assets not available in this build")
-          }
-          
-          // AssetInfo - 实现AssetInfo函数
-          func AssetInfo(name string) (fs.FileInfo, error) {
-              setupLog.Debugf("AssetInfo called for %s (not implemented in no_assets build)", name)
-              return nil, errors.New("assets not available in this build")
-          }
-
-          // GetTrafficEncoderDir - 获取流量编码器目录
-          func GetTrafficEncoderDir() string {
-              return filepath.Join(".", "traffic-encoders")
-          }
-          
-          // GetRootAppDir - 获取应用程序根目录
-          func GetRootAppDir() string {
-              exePath, err := os.Executable()
-              if err != nil {
-                  setupLog.Errorf("Failed to get executable path: %s", err)
-                  return "."
-              }
-              return filepath.Dir(exePath)
-          }
-          
-          // GetZigDir - 获取Zig目录
-          func GetZigDir(targetOS string, targetArch string) string {
-              zigDir := filepath.Join(GetRootAppDir(), ".sliver-client", "zig")
-              if _, err := os.Stat(zigDir); os.IsNotExist(err) {
-                  os.MkdirAll(zigDir, 0700)
-              }
-              return zigDir
-          }
-          
-          // 定义assetsFs变量
-          var assetsFs = &AssetFS{
-              Asset:    Asset,
-              AssetDir: AssetDir,
-              AssetInfo: AssetInfo,
-          }
-          
-          // AssetFS - 文件系统接口实现
-          type AssetFS struct {
-              Asset    func(name string) ([]byte, error)
-              AssetDir func(name string) ([]string, error)
-              AssetInfo func(name string) (fs.FileInfo, error)
-          }
-          
-          // ReadFile - 添加的为了兼容assets-helpers.go的方法
-          func (a *AssetFS) ReadFile(name string) ([]byte, error) {
-              return a.Asset(name)
-          }
-          
-          // 为了避免编译器报错，添加缺失的一些目录函数
-          func GetGoDirPath(goOS string, goArch string) string {
-              return filepath.Join(".", GoDirName, goOS, goArch) 
-          }
-          
-          func GetGoZipPath(goOS string, goArch string) string {
-              return filepath.Join(GetGoDirPath(goOS, goArch), "go.zip")
-          }
-          
-          func GetSGNPath(goOS string, goArch string) string {
-              return filepath.Join(".", "sgn", goOS, goArch)
-          }
-          
-          func GetGarblePath(goOS string, goArch string) string {
-              return filepath.Join(".", "garble", goOS, goArch) 
-          }
-          
-          func GetZigPath(goOS string, goArch string) string {
-              return filepath.Join(".", ZigDirName, goOS, goArch)
-          }
-          EOFILE
-          
-          # 创建assets-helpers.go的修复替换
-          # 我们首先检查是否存在原始文件，如果存在则备份它
-          if [ -f ./server/assets/assets-helpers.go ]; then
-              cp ./server/assets/assets-helpers.go ./server/assets/assets-helpers.go.bak
-              # 尝试修复ReadFile错误
-              sed -i 's/assetsFs\.ReadFile/assetsFs\.Asset/g' ./server/assets/assets-helpers.go
-          fi
-          EOF
-          
-          # 使脚本可执行并运行它
-          chmod +x assets-patch.sh
-          ./assets-patch.sh
 
       - name: Build Sliver for CentOS 5.11
         run: |
@@ -610,22 +409,21 @@ EOFILE
           #!/bin/sh
           set -e
           
-          # 配置Git安全目录
+          # Configure Git safe directory
           git config --global --add safe.directory /build
           
-          # 在Docker容器内部的修复步骤
-          # 再次修复 configs/crack.go 中的整数溢出问题
+          # Fix integer overflow in configs/crack.go inside the container
           if [ -f /build/server/configs/crack.go ]; then
             echo "===== Fixing crack.go in build container ====="
             cat /build/server/configs/crack.go | sed 's/10737418240/int64(10737418240)/g' > /tmp/crack.go
             mv /tmp/crack.go /build/server/configs/crack.go
             
-            # 显示修复后的文件
+            # Show the modified file
             echo "Content around line 104:"
             sed -n '100,110p' /build/server/configs/crack.go 
           fi
           
-          # 设置版本信息
+          # Set version information
           export VERSION=$(git describe --abbrev=0 || echo "v0.0.0")
           export COMPILED_AT=$(date +%s)
           export RELEASES_URL="https://api.github.com/repos/BishopFox/sliver/releases"
@@ -634,7 +432,7 @@ EOFILE
           export ARMORY_PUBLIC_KEY="RWSBpxpRWDrD7Fe+VvRE3c2VEDC2NK80rlNCj+BX0gz44Xw07r6KQD9L"
           export ARMORY_REPO_URL="https://api.github.com/repos/sliverarmory/armory/releases"
           
-          # 设置构建标志
+          # Set build flags
           export LDFLAGS="-s -w \
             -extldflags '-static -Wl,--strip-all' \
             -X github.com/bishopfox/sliver/client/version.Version=${VERSION} \
@@ -645,24 +443,24 @@ EOFILE
             -X github.com/bishopfox/sliver/client/assets.DefaultArmoryPublicKey=${ARMORY_PUBLIC_KEY} \
             -X github.com/bishopfox/sliver/client/assets.DefaultArmoryRepoURL=${ARMORY_REPO_URL}"
           
-          # 确保vendor目录存在
+          # Ensure vendor directory exists
           go mod vendor || echo "Vendor modules already present"
           
-          # 构建服务器 - 这次使用no_assets标签跳过资产嵌入
+          # Build the server - using no_assets tag to skip asset embedding
           echo "Building sliver-server for CentOS 5.11 i686..."
           go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server" -ldflags "${LDFLAGS}" -o /build/sliver-server-centos5-i686 ./server
           
-          # 使用UPX进一步压缩二进制文件
-          echo "压缩二进制文件..."
+          # Compress the binary with UPX
+          echo "Compressing the binary..."
           upx -9 /build/sliver-server-centos5-i686
           
-          # 验证构建结果
+          # Verify build result
           file /build/sliver-server-centos5-i686
           
-          # 再次检查文件是否存在
+          # Check if the file exists
           ls -la /build/sliver-server-centos5-i686
           
-          # 确保文件有执行权限
+          # Ensure file has execution permissions
           chmod +x /build/sliver-server-centos5-i686
           EOF
           
@@ -732,34 +530,34 @@ EOFILE
           cat > README-centos5-i686.md << 'EOF'
           # Sliver Server for CentOS 5.11 i686
 
-          此构建专为老旧的CentOS 5.11 i686系统设计，构建设置如下：
+          This build is specifically designed for older CentOS 5.11 i686 systems, with the following build configuration:
 
-          - 基于静态编译的Go应用程序
-          - 使用Alpine进行交叉编译
-          - 目标系统：Linux 2.6.18内核，glibc 2.5
-          - 构建特性：
-            - 静态链接（无外部依赖）
-            - 32位i686架构
-            - 使用UPX压缩以减小体积
+          - Based on statically compiled Go application
+          - Uses Alpine for cross-compilation
+          - Target system: Linux 2.6.18 kernel, glibc 2.5
+          - Build features:
+            - Static linking (no external dependencies)
+            - 32-bit i686 architecture
+            - UPX compression to reduce file size
 
-          ## 使用方法
+          ## Usage
 
-          1. 下载二进制文件
-          2. 赋予执行权限：`chmod +x sliver-server-centos5-i686`
-          3. 运行服务器：`./sliver-server-centos5-i686`
+          1. Download the binary file
+          2. Grant execution permissions: `chmod +x sliver-server-centos5-i686`
+          3. Run the server: `./sliver-server-centos5-i686`
 
-          首次运行时，服务器将生成所需的配置文件和证书。
+          On first run, the server will generate the required configuration files and certificates.
           
-          ## 功能限制
+          ## Feature Limitations
 
-          此版本使用了`no_assets`标签构建，意味着没有内置资源包（Go、编译器等）。
-          如果需要使用implant生成功能，请将必要的资源手动放置在相应目录中。
+          This version is built with the `no_assets` tag, meaning it doesn't include built-in resource packages (Go, compilers, etc.).
+          If you need to use implant generation features, please manually place the necessary resources in the appropriate directories.
           
-          ## 注意事项
+          ## Additional Notes
           
-          - 此二进制文件已经过静态编译，不依赖系统库
-          - 为保证最佳兼容性，使用`-extldflags '-static'`构建
-          - 使用UPX压缩，如运行时遇到问题，可尝试解压缩：`upx -d sliver-server-centos5-i686`
+          - This binary is statically compiled, with no system library dependencies
+          - For best compatibility, it's built using `-extldflags '-static'`
+          - UPX compression is used; if you encounter issues, try decompressing it: `upx -d sliver-server-centos5-i686`
           EOF
 
       - name: Upload README
