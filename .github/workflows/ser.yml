@@ -28,10 +28,10 @@ jobs:
       - name: Create Dockerfile for Alpine
         run: |
           cat > Dockerfile.alpine << 'EOF'
-          FROM golang:1.21.6-alpine3.19
+          FROM golang:1.22.2-alpine3.19
 
           # 安装基本构建工具和依赖
-          RUN apk add --no-cache build-base git ca-certificates upx curl bash
+          RUN apk add --no-cache build-base git ca-certificates upx curl bash zip
 
           # 设置工作目录
           WORKDIR /build
@@ -51,6 +51,9 @@ jobs:
           cat > build.sh << 'EOF'
           #!/bin/sh
           set -e
+          
+          # 配置Git安全目录
+          git config --global --add safe.directory /build
           
           # 设置版本信息
           export VERSION=$(git describe --abbrev=0 || echo "v0.0.0")
