@@ -283,6 +283,50 @@ jobs:
             echo "未发现需要修复的代码模式，跳过修复"
           fi
           
+          # 修复loot.go中的整数溢出问题
+          echo "检查loot.go中的MaxLootSize是否需要修复..."
+          if grep -q "MaxLootSize = 2 \* 1024 \* 1024 \* 1024" ./server/loot/loot.go; then
+            echo "发现MaxLootSize可能导致32位溢出，需要修复..."
+            
+            # 备份原始文件
+            cp ./server/loot/loot.go ./server/loot/loot.go.bak
+            
+            # 修复整数常量定义为int64类型
+            sed -i 's/MaxLootSize = 2 \* 1024 \* 1024 \* 1024/MaxLootSize int64 = 2 \* 1024 \* 1024 \* 1024/g' ./server/loot/loot.go
+            
+            # 确认修复
+            echo "修复后的MaxLootSize:"
+            grep -n "MaxLootSize" ./server/loot/loot.go
+            
+            # 创建标记文件
+            echo "已应用loot.go整数溢出修复" > .loot_fixed
+          fi
+          
+          # 修复assets.English()未定义问题
+          echo "检查encoders.go是否需要修复..."
+          if grep -q "assets.English(" ./server/encoders/encoders.go; then
+            echo "发现assets.English()调用，在no_assets模式下需要修改..."
+            
+            # 备份原始文件
+            cp ./server/encoders/encoders.go ./server/encoders/encoders.go.bak
+            
+            # 创建补丁文件
+            cat > fix-encoders.sh << 'EOFIXENC'
+            #!/bin/bash
+            
+            # 为no_assets模式修改初始化代码
+            sed -i '/util.SetEnglishDictionary(assets.English())/c\	\/\/ util.SetEnglishDictionary 在no_assets模式下禁用\n	\/\/ util.SetEnglishDictionary(assets.English())' ./server/encoders/encoders.go
+            
+            # 打印结果
+            echo "修复后的init函数:"
+            grep -A 10 "func init" ./server/encoders/encoders.go
+            EOFIXENC
+            
+            # 执行修复
+            chmod +x fix-encoders.sh
+            ./fix-encoders.sh
+          fi
+          
           # 检查和修复gogo/go.go中的GetZigDir调用
           echo "检查gogo/go.go中的GetZigDir调用..."
           if [ -f ./server/gogo/go.go ] && grep -q "GetZigDir()" ./server/gogo/go.go; then
@@ -358,12 +402,29 @@ jobs:
           echo '  sed -i '"'"'s/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g'"'"' ./server/configs/crack.go' >> build.sh
           echo '  sed -i '"'"'s/MaxFileSize  int/MaxFileSize  int64/g'"'"' ./server/configs/crack.go' >> build.sh
           echo '  sed -i '"'"'s/MaxDiskUsage int/MaxDiskUsage int64/g'"'"' ./server/configs/crack.go' >> build.sh
+          echo '' >> build.sh
+          
           echo '  # 修复可能的类型拼写错误' >> build.sh
           echo '  if grep -q "int6464" ./server/configs/crack.go; then' >> build.sh
           echo '    echo "发现int6464拼写错误，修正为int64"' >> build.sh
           echo '    sed -i '"'"'s/int6464/int64/g'"'"' ./server/configs/crack.go' >> build.sh
           echo '  fi' >> build.sh
           echo '' >> build.sh
+          
+          echo '  # 修复loot.go中的整数溢出问题' >> build.sh
+          echo '  if grep -q "MaxLootSize = 2 \* 1024 \* 1024 \* 1024" ./server/loot/loot.go; then' >> build.sh
+          echo '    echo "修复loot.go中的MaxLootSize整数溢出问题..."' >> build.sh
+          echo '    sed -i '"'"'s/MaxLootSize = 2 \* 1024 \* 1024 \* 1024/MaxLootSize int64 = 2 \* 1024 \* 1024 \* 1024/g'"'"' ./server/loot/loot.go' >> build.sh
+          echo '  fi' >> build.sh
+          echo '' >> build.sh
+          
+          echo '  # 修复assets.English()未定义问题' >> build.sh
+          echo '  if grep -q "assets.English(" ./server/encoders/encoders.go; then' >> build.sh
+          echo '    echo "修复assets.English()在no_assets模式下未定义的问题..."' >> build.sh
+          echo '    sed -i '"'"'/util.SetEnglishDictionary(assets.English())/c\\t\/\/ util.SetEnglishDictionary 在no_assets模式下禁用\\n\\t\/\/ util.SetEnglishDictionary(assets.English())'"'"' ./server/encoders/encoders.go' >> build.sh
+          echo '  fi' >> build.sh
+          echo '' >> build.sh
+          
           echo '  echo "应用紧急修复后，再次检查："' >> build.sh
           echo '  grep -n "defaultMaxFileSize" ./server/configs/crack.go' >> build.sh
           echo 'fi' >> build.sh
@@ -429,7 +490,11 @@ jobs:
               
               # 尝试直接在当前环境编译
               echo "在主环境中尝试重新编译..."
-              docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && sed -i 's/int6464/int64/g' ./server/configs/crack.go && go build -mod=vendor -trimpath -tags netgo,osusergo,no_assets,server,go_sqlite -ldflags '-s -w -extldflags \"-static -Wl,--strip-all\"' -o sliver-server-centos5-i686 ./server"
+              docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && \
+                sed -i 's/int6464/int64/g' ./server/configs/crack.go && \
+                sed -i 's/MaxLootSize = 2 \* 1024 \* 1024 \* 1024/MaxLootSize int64 = 2 \* 1024 \* 1024 \* 1024/g' ./server/loot/loot.go && \
+                sed -i '/util.SetEnglishDictionary(assets.English())/c\\t\\/\\/ util.SetEnglishDictionary 在no_assets模式下禁用\\n\\t\\/\\/ util.SetEnglishDictionary(assets.English())' ./server/encoders/encoders.go && \
+                go build -mod=vendor -trimpath -tags netgo,osusergo,no_assets,server,go_sqlite -ldflags '-s -w -extldflags \"-static -Wl,--strip-all\"' -o sliver-server-centos5-i686 ./server"
             fi
           fi
       
