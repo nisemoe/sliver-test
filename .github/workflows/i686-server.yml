@@ -45,12 +45,22 @@ jobs:
       - name: Build Docker image
         run: docker build -t sliver-build -f Dockerfile.alpine .
 
-      - name: Prepare custom build approach
+      - name: Prepare patched asset files
         run: |
-          # 修改构建方法为使用--tags="no_assets"跳过需要生成资产的部分
-          # 创建assets_generate.go文件，带上package声明
+          # 创建目录结构
           mkdir -p ./server/assets/
-          cat > ./server/assets/assets_generate.go << 'EOF'
+          
+          # 检查assets-helpers.go的内容
+          grep -n "setupLog" ./server/assets/assets-helpers.go || echo "setupLog not found"
+          grep -n "GetTrafficEncoderDir" ./server/assets/assets-helpers.go || echo "GetTrafficEncoderDir not found"
+          
+          # 创建补丁文件以修复缺少的函数
+          cat > assets-patch.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          # 创建assets_generate.go文件
+          cat > ./server/assets/assets_generate.go << 'EOFILE'
           //go:build generate
           // +build generate
 
@@ -58,37 +68,54 @@ jobs:
 
           // 这个文件用于go generate命令，但我们在编译时使用no_assets标签跳过它
           // 此文件不包含实际功能，仅为了满足编译要求
-          EOF
+          EOFILE
           
-          cat > ./server/assets/assets.go << 'EOF'
+          # 创建带有所有必要函数的assets.go文件
+          cat > ./server/assets/assets.go << 'EOFILE'
+          //go:build !generate && no_assets
+          // +build !generate,no_assets
+
           package assets
-          
+
           import (
             "errors"
             "fmt"
             "io/fs"
             "os"
+            "path/filepath"
             "time"
+            "log"
           )
+          
+          // 添加日志记录函数
+          var setupLog = log.New(os.Stderr, "assets: ", log.LstdFlags)
           
           // Setup - 初始化资产
           func Setup() {
-            fmt.Printf("[assets] Skip loading embedded assets (using no_assets tag)\n")
+            setupLog.Printf("[assets] Skip loading embedded assets (using no_assets tag)\n")
           }
           
-          // Asset - 实现空的Asset函数
+          // Asset - 实现Asset函数
           func Asset(name string) ([]byte, error) {
+            setupLog.Printf("Asset called for %s (not implemented in no_assets build)\n", name)
             return []byte{}, errors.New("assets not available in this build")
           }
           
-          // AssetDir - 实现空的AssetDir函数
+          // AssetDir - 实现AssetDir函数
           func AssetDir(name string) ([]string, error) {
+            setupLog.Printf("AssetDir called for %s (not implemented in no_assets build)\n", name)
             return []string{}, errors.New("assets not available in this build")
           }
           
-          // AssetInfo - 实现空的AssetInfo函数
+          // AssetInfo - 实现AssetInfo函数
           func AssetInfo(name string) (fs.FileInfo, error) {
+            setupLog.Printf("AssetInfo called for %s (not implemented in no_assets build)\n", name)
             return nil, errors.New("assets not available in this build")
+          }
+
+          // GetTrafficEncoderDir - 获取流量编码器目录
+          func GetTrafficEncoderDir() string {
+            return filepath.Join(".", "traffic-encoders")
           }
           
           // 定义assetsFs变量
@@ -104,7 +131,46 @@ jobs:
             AssetDir func(name string) ([]string, error)
             AssetInfo func(name string) (fs.FileInfo, error)
           }
+          
+          // ReadFile - 添加的为了兼容assets-helpers.go的方法
+          func (a *AssetFS) ReadFile(name string) ([]byte, error) {
+            return a.Asset(name)
+          }
+          
+          // 为了避免编译器报错，添加缺失的一些目录函数
+          func GetGoDirPath(goOS string, goArch string) string {
+            return filepath.Join(".", "go", goOS, goArch) 
+          }
+          
+          func GetGoZipPath(goOS string, goArch string) string {
+            return filepath.Join(GetGoDirPath(goOS, goArch), "go.zip")
+          }
+          
+          func GetSGNPath(goOS string, goArch string) string {
+            return filepath.Join(".", "sgn", goOS, goArch)
+          }
+          
+          func GetGarblePath(goOS string, goArch string) string {
+            return filepath.Join(".", "garble", goOS, goArch) 
+          }
+          
+          func GetZigPath(goOS string, goArch string) string {
+            return filepath.Join(".", "zig", goOS, goArch)
+          }
+          EOFILE
+          
+          # 创建assets-helpers.go的修复替换
+          # 我们首先检查是否存在原始文件，如果存在则备份它
+          if [ -f ./server/assets/assets-helpers.go ]; then
+            cp ./server/assets/assets-helpers.go ./server/assets/assets-helpers.go.bak
+            # 尝试修复ReadFile错误
+            sed -i 's/assetsFs\.ReadFile/assetsFs\.Asset/g' ./server/assets/assets-helpers.go
+          fi
           EOF
+          
+          # 使脚本可执行并运行它
+          chmod +x assets-patch.sh
+          ./assets-patch.sh
 
       - name: Build Sliver for CentOS 5.11
         run: |
