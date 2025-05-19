@@ -102,9 +102,7 @@ jobs:
             cp ./server/assets/assets.go ./server/assets/assets.go.bak
             
             # 创建构建标签来区分no_assets模式
-            echo '//go:build !generate && !no_assets
-            // +build !generate,!no_assets
-            ' | cat - ./server/assets/assets.go > temp && mv temp ./server/assets/assets.go
+            echo -e "//go:build !generate && !no_assets\n// +build !generate,!no_assets\n" | cat - ./server/assets/assets.go > temp && mv temp ./server/assets/assets.go
             
             # 创建无资产版本的资产文件
             cat > ./server/assets/assets_no_assets.go << 'EOT'
