@@ -48,9 +48,18 @@ jobs:
       - name: Prepare custom build approach
         run: |
           # 修改构建方法为使用--tags="no_assets"跳过需要生成资产的部分
-          # 创建一个空的assets_generate.go文件
+          # 创建assets_generate.go文件，带上package声明
           mkdir -p ./server/assets/
-          touch ./server/assets/assets_generate.go
+          cat > ./server/assets/assets_generate.go << 'EOF'
+          //go:build generate
+          // +build generate
+
+          package assets
+
+          // 这个文件用于go generate命令，但我们在编译时使用no_assets标签跳过它
+          // 此文件不包含实际功能，仅为了满足编译要求
+          EOF
+          
           cat > ./server/assets/assets.go << 'EOF'
           package assets
           
