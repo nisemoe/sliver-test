@@ -26,17 +26,16 @@ jobs:
           ls -la go-assets.sh
       - name: Create Dockerfile for Alpine
         run: |
-          cat > Dockerfile.alpine << 'EOF'
-          FROM golang:1.22.2-alpine3.19
-          # 安装基本构建工具和依赖
-          RUN apk add --no-cache build-base git ca-certificates upx curl bash zip unzip xz
-          # 设置工作目录
-          WORKDIR /build
-          # 设置环境变量
-          ENV CGO_ENABLED=0
-          ENV GOOS=linux
-          ENV GOARCH=386
-          EOF
+          # 使用echo命令创建Dockerfile，避免heredoc语法问题
+          echo 'FROM golang:1.22.2-alpine3.19' > Dockerfile.alpine
+          echo '# 安装基本构建工具和依赖' >> Dockerfile.alpine
+          echo 'RUN apk add --no-cache build-base git ca-certificates upx curl bash zip unzip xz' >> Dockerfile.alpine
+          echo '# 设置工作目录' >> Dockerfile.alpine
+          echo 'WORKDIR /build' >> Dockerfile.alpine
+          echo '# 设置环境变量' >> Dockerfile.alpine
+          echo 'ENV CGO_ENABLED=0' >> Dockerfile.alpine
+          echo 'ENV GOOS=linux' >> Dockerfile.alpine
+          echo 'ENV GOARCH=386' >> Dockerfile.alpine
       - name: Build Docker image
         run: docker build -t sliver-build -f Dockerfile.alpine .
 
@@ -54,168 +53,170 @@ jobs:
             echo "已应用GetZigDir调用修复，无需再次修复"
           fi
           
-          # 创建补丁文件以修复缺少的函数
-          cat > assets-patch.sh << 'EOF'
-          #!/bin/bash
-          set -e
+          # 使用echo命令创建assets-patch.sh脚本，避免heredoc语法问题
+          echo '#!/bin/bash' > assets-patch.sh
+          echo 'set -e' >> assets-patch.sh
+          echo '' >> assets-patch.sh
           
           # 创建assets_generate.go文件
-          cat > ./server/assets/assets_generate.go << 'EOFILE'
-          //go:build generate
-          // +build generate
-          package assets
-          // 这个文件用于go generate命令，但我们在编译时使用no_assets标签跳过它
-          // 此文件不包含实际功能，仅为了满足编译要求
-          EOFILE
+          echo 'cat > ./server/assets/assets_generate.go << '"'"'EOFILE'"'"'' >> assets-patch.sh
+          echo '//go:build generate' >> assets-patch.sh
+          echo '// +build generate' >> assets-patch.sh
+          echo 'package assets' >> assets-patch.sh
+          echo '// 这个文件用于go generate命令，但我们在编译时使用no_assets标签跳过它' >> assets-patch.sh
+          echo '// 此文件不包含实际功能，仅为了满足编译要求' >> assets-patch.sh
+          echo 'EOFILE' >> assets-patch.sh
+          echo '' >> assets-patch.sh
           
-          # 创建带有所有必要函数的assets.go文件
-          cat > ./server/assets/assets.go << 'EOFILE'
-          //go:build !generate && no_assets
-          // +build !generate,no_assets
-          package assets
-          import (
-            "errors"
-            "io/fs"
-            "os"
-            "path/filepath"
-            "log"
-          )
+          # 创建assets.go文件
+          echo 'cat > ./server/assets/assets.go << '"'"'EOFILE'"'"'' >> assets-patch.sh
+          echo '//go:build !generate && no_assets' >> assets-patch.sh
+          echo '// +build !generate,no_assets' >> assets-patch.sh
+          echo 'package assets' >> assets-patch.sh
+          echo 'import (' >> assets-patch.sh
+          echo '  "errors"' >> assets-patch.sh
+          echo '  "io/fs"' >> assets-patch.sh
+          echo '  "os"' >> assets-patch.sh
+          echo '  "path/filepath"' >> assets-patch.sh
+          echo '  "log"' >> assets-patch.sh
+          echo ')' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// 定义常量' >> assets-patch.sh
+          echo 'const (' >> assets-patch.sh
+          echo '  GoDirName = "go"' >> assets-patch.sh
+          echo '  ZigDirName = "zig"' >> assets-patch.sh
+          echo ')' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// 自定义日志记录器' >> assets-patch.sh
+          echo 'type Logger struct {' >> assets-patch.sh
+          echo '    stdLogger *log.Logger' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo 'func (l *Logger) Info(args ...interface{}) {' >> assets-patch.sh
+          echo '    l.stdLogger.Println(args...)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo 'func (l *Logger) Infof(format string, args ...interface{}) {' >> assets-patch.sh
+          echo '    l.stdLogger.Printf(format, args...)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo 'func (l *Logger) Warn(args ...interface{}) {' >> assets-patch.sh
+          echo '    l.stdLogger.Println("[WARN]", args)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo 'func (l *Logger) Warnf(format string, args ...interface{}) {' >> assets-patch.sh
+          echo '    l.stdLogger.Printf("[WARN] "+format, args...)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo 'func (l *Logger) Error(args ...interface{}) {' >> assets-patch.sh
+          echo '    l.stdLogger.Println("[ERROR]", args)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo 'func (l *Logger) Errorf(format string, args ...interface{}) {' >> assets-patch.sh
+          echo '    l.stdLogger.Printf("[ERROR] "+format, args...)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo 'func (l *Logger) Debug(args ...interface{}) {' >> assets-patch.sh
+          echo '    l.stdLogger.Println("[DEBUG]", args)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo 'func (l *Logger) Debugf(format string, args ...interface{}) {' >> assets-patch.sh
+          echo '    l.stdLogger.Printf("[DEBUG] "+format, args...)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// 创建自定义日志记录器实例' >> assets-patch.sh
+          echo 'var setupLog = &Logger{' >> assets-patch.sh
+          echo '    stdLogger: log.New(os.Stderr, "assets: ", log.LstdFlags),' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// Setup - 初始化资产' >> assets-patch.sh
+          echo 'func Setup() {' >> assets-patch.sh
+          echo '    setupLog.Infof("[assets] Skip loading embedded assets (using no_assets tag)")' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// Asset - 实现Asset函数' >> assets-patch.sh
+          echo 'func Asset(name string) ([]byte, error) {' >> assets-patch.sh
+          echo '    setupLog.Debugf("Asset called for %s (not implemented in no_assets build)", name)' >> assets-patch.sh
+          echo '    return []byte{}, errors.New("assets not available in this build")' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// AssetDir - 实现AssetDir函数' >> assets-patch.sh
+          echo 'func AssetDir(name string) ([]string, error) {' >> assets-patch.sh
+          echo '    setupLog.Debugf("AssetDir called for %s (not implemented in no_assets build)", name)' >> assets-patch.sh
+          echo '    return []string{}, errors.New("assets not available in this build")' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// AssetInfo - 实现AssetInfo函数' >> assets-patch.sh
+          echo 'func AssetInfo(name string) (fs.FileInfo, error) {' >> assets-patch.sh
+          echo '    setupLog.Debugf("AssetInfo called for %s (not implemented in no_assets build)", name)' >> assets-patch.sh
+          echo '    return nil, errors.New("assets not available in this build")' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '// GetTrafficEncoderDir - 获取流量编码器目录' >> assets-patch.sh
+          echo 'func GetTrafficEncoderDir() string {' >> assets-patch.sh
+          echo '    return filepath.Join(".", "traffic-encoders")' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// GetRootAppDir - 获取应用程序根目录' >> assets-patch.sh
+          echo 'func GetRootAppDir() string {' >> assets-patch.sh
+          echo '    exePath, err := os.Executable()' >> assets-patch.sh
+          echo '    if err != nil {' >> assets-patch.sh
+          echo '        setupLog.Errorf("Failed to get executable path: %s", err)' >> assets-patch.sh
+          echo '        return "."' >> assets-patch.sh
+          echo '    }' >> assets-patch.sh
+          echo '    return filepath.Dir(exePath)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// GetZigDir - 获取Zig目录' >> assets-patch.sh
+          echo 'func GetZigDir(targetOS string, targetArch string) string {' >> assets-patch.sh
+          echo '    zigDir := filepath.Join(GetRootAppDir(), ".sliver-client", "zig")' >> assets-patch.sh
+          echo '    if _, err := os.Stat(zigDir); os.IsNotExist(err) {' >> assets-patch.sh
+          echo '        os.MkdirAll(zigDir, 0700)' >> assets-patch.sh
+          echo '    }' >> assets-patch.sh
+          echo '    return zigDir' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// 定义assetsFs变量' >> assets-patch.sh
+          echo 'var assetsFs = &AssetFS{' >> assets-patch.sh
+          echo '    Asset:    Asset,' >> assets-patch.sh
+          echo '    AssetDir: AssetDir,' >> assets-patch.sh
+          echo '    AssetInfo: AssetInfo,' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// AssetFS - 文件系统接口实现' >> assets-patch.sh
+          echo 'type AssetFS struct {' >> assets-patch.sh
+          echo '    Asset    func(name string) ([]byte, error)' >> assets-patch.sh
+          echo '    AssetDir func(name string) ([]string, error)' >> assets-patch.sh
+          echo '    AssetInfo func(name string) (fs.FileInfo, error)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// ReadFile - 添加的为了兼容assets-helpers.go的方法' >> assets-patch.sh
+          echo 'func (a *AssetFS) ReadFile(name string) ([]byte, error) {' >> assets-patch.sh
+          echo '    return a.Asset(name)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo '// 为了避免编译器报错，添加缺失的一些目录函数' >> assets-patch.sh
+          echo 'func GetGoDirPath(goOS string, goArch string) string {' >> assets-patch.sh
+          echo '    return filepath.Join(".", GoDirName, goOS, goArch) ' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo 'func GetGoZipPath(goOS string, goArch string) string {' >> assets-patch.sh
+          echo '    return filepath.Join(GetGoDirPath(goOS, goArch), "go.zip")' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo 'func GetSGNPath(goOS string, goArch string) string {' >> assets-patch.sh
+          echo '    return filepath.Join(".", "sgn", goOS, goArch)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo 'func GetGarblePath(goOS string, goArch string) string {' >> assets-patch.sh
+          echo '    return filepath.Join(".", "garble", goOS, goArch) ' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo '' >> assets-patch.sh
+          echo 'func GetZigPath(goOS string, goArch string) string {' >> assets-patch.sh
+          echo '    return filepath.Join(".", ZigDirName, goOS, goArch)' >> assets-patch.sh
+          echo '}' >> assets-patch.sh
+          echo 'EOFILE' >> assets-patch.sh
+          echo '' >> assets-patch.sh
           
-          // 定义常量
-          const (
-            GoDirName = "go"
-            ZigDirName = "zig"
-          )
-          
-          // 自定义日志记录器
-          type Logger struct {
-              stdLogger *log.Logger
-          }
-          func (l *Logger) Info(args ...interface{}) {
-              l.stdLogger.Println(args...)
-          }
-          func (l *Logger) Infof(format string, args ...interface{}) {
-              l.stdLogger.Printf(format, args...)
-          }
-          func (l *Logger) Warn(args ...interface{}) {
-              l.stdLogger.Println("[WARN]", args)
-          }
-          func (l *Logger) Warnf(format string, args ...interface{}) {
-              l.stdLogger.Printf("[WARN] "+format, args...)
-          }
-          func (l *Logger) Error(args ...interface{}) {
-              l.stdLogger.Println("[ERROR]", args)
-          }
-          func (l *Logger) Errorf(format string, args ...interface{}) {
-              l.stdLogger.Printf("[ERROR] "+format, args...)
-          }
-          func (l *Logger) Debug(args ...interface{}) {
-              l.stdLogger.Println("[DEBUG]", args)
-          }
-          func (l *Logger) Debugf(format string, args ...interface{}) {
-              l.stdLogger.Printf("[DEBUG] "+format, args...)
-          }
-          
-          // 创建自定义日志记录器实例
-          var setupLog = &Logger{
-              stdLogger: log.New(os.Stderr, "assets: ", log.LstdFlags),
-          }
-          
-          // Setup - 初始化资产
-          func Setup() {
-              setupLog.Infof("[assets] Skip loading embedded assets (using no_assets tag)")
-          }
-          
-          // Asset - 实现Asset函数
-          func Asset(name string) ([]byte, error) {
-              setupLog.Debugf("Asset called for %s (not implemented in no_assets build)", name)
-              return []byte{}, errors.New("assets not available in this build")
-          }
-          
-          // AssetDir - 实现AssetDir函数
-          func AssetDir(name string) ([]string, error) {
-              setupLog.Debugf("AssetDir called for %s (not implemented in no_assets build)", name)
-              return []string{}, errors.New("assets not available in this build")
-          }
-          
-          // AssetInfo - 实现AssetInfo函数
-          func AssetInfo(name string) (fs.FileInfo, error) {
-              setupLog.Debugf("AssetInfo called for %s (not implemented in no_assets build)", name)
-              return nil, errors.New("assets not available in this build")
-          }
-          // GetTrafficEncoderDir - 获取流量编码器目录
-          func GetTrafficEncoderDir() string {
-              return filepath.Join(".", "traffic-encoders")
-          }
-          
-          // GetRootAppDir - 获取应用程序根目录
-          func GetRootAppDir() string {
-              exePath, err := os.Executable()
-              if err != nil {
-                  setupLog.Errorf("Failed to get executable path: %s", err)
-                  return "."
-              }
-              return filepath.Dir(exePath)
-          }
-          
-          // GetZigDir - 获取Zig目录
-          func GetZigDir(targetOS string, targetArch string) string {
-              zigDir := filepath.Join(GetRootAppDir(), ".sliver-client", "zig")
-              if _, err := os.Stat(zigDir); os.IsNotExist(err) {
-                  os.MkdirAll(zigDir, 0700)
-              }
-              return zigDir
-          }
-          
-          // 定义assetsFs变量
-          var assetsFs = &AssetFS{
-              Asset:    Asset,
-              AssetDir: AssetDir,
-              AssetInfo: AssetInfo,
-          }
-          
-          // AssetFS - 文件系统接口实现
-          type AssetFS struct {
-              Asset    func(name string) ([]byte, error)
-              AssetDir func(name string) ([]string, error)
-              AssetInfo func(name string) (fs.FileInfo, error)
-          }
-          
-          // ReadFile - 添加的为了兼容assets-helpers.go的方法
-          func (a *AssetFS) ReadFile(name string) ([]byte, error) {
-              return a.Asset(name)
-          }
-          
-          // 为了避免编译器报错，添加缺失的一些目录函数
-          func GetGoDirPath(goOS string, goArch string) string {
-              return filepath.Join(".", GoDirName, goOS, goArch) 
-          }
-          
-          func GetGoZipPath(goOS string, goArch string) string {
-              return filepath.Join(GetGoDirPath(goOS, goArch), "go.zip")
-          }
-          
-          func GetSGNPath(goOS string, goArch string) string {
-              return filepath.Join(".", "sgn", goOS, goArch)
-          }
-          
-          func GetGarblePath(goOS string, goArch string) string {
-              return filepath.Join(".", "garble", goOS, goArch) 
-          }
-          
-          func GetZigPath(goOS string, goArch string) string {
-              return filepath.Join(".", ZigDirName, goOS, goArch)
-          }
-          EOFILE
-          
-          # 创建assets-helpers.go的修复替换
-          # 我们首先检查是否存在原始文件，如果存在则备份它
-          if [ -f ./server/assets/assets-helpers.go ]; then
-              cp ./server/assets/assets-helpers.go ./server/assets/assets-helpers.go.bak
-              # 尝试修复ReadFile错误
-              sed -i 's/assetsFs\.ReadFile/assetsFs\.Asset/g' ./server/assets/assets-helpers.go
-          fi
-          EOF
+          # 修复assets-helpers.go
+          echo '# 创建assets-helpers.go的修复替换' >> assets-patch.sh
+          echo '# 我们首先检查是否存在原始文件，如果存在则备份它' >> assets-patch.sh
+          echo 'if [ -f ./server/assets/assets-helpers.go ]; then' >> assets-patch.sh
+          echo '    cp ./server/assets/assets-helpers.go ./server/assets/assets-helpers.go.bak' >> assets-patch.sh
+          echo '    # 尝试修复ReadFile错误' >> assets-patch.sh
+          echo '    sed -i '"'"'s/assetsFs\.ReadFile/assetsFs\.Asset/g'"'"' ./server/assets/assets-helpers.go' >> assets-patch.sh
+          echo 'fi' >> assets-patch.sh
           
           # 使脚本可执行并运行它
           chmod +x assets-patch.sh
@@ -230,9 +231,9 @@ jobs:
           if grep -q "const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024" ./server/configs/crack.go; then
             echo "发现defaultMaxFileSize可能导致32位溢出，需要修复..."
             
-            # 创建修复脚本
-            cat > fix_overflow.sh << 'EOFIXSCRIPT'
-            #!/bin/bash
+            # 直接运行sed命令而不使用heredoc
+            echo "开始修复整数溢出问题..."
+            
             # 备份原始文件
             cp ./server/configs/crack.go ./server/configs/crack.go.bak
             
@@ -247,11 +248,6 @@ jobs:
             # 3. 修复任何函数参数类型声明
             sed -i 's/MaxFileSize int /MaxFileSize int64 /g' ./server/configs/crack.go
             sed -i 's/MaxDiskUsage int /MaxDiskUsage int64 /g' ./server/configs/crack.go
-            EOFIXSCRIPT
-            
-            # 执行修复
-            chmod +x fix_overflow.sh
-            ./fix_overflow.sh
             
             # 显示修复结果
             echo "------------------------------"
@@ -287,85 +283,80 @@ jobs:
       - name: Build Sliver for CentOS 5.11
         run: |
           # 创建build.sh脚本
-          cat > build.sh << 'EOF'
-          #!/bin/sh
-          set -e
+          echo '#!/bin/sh' > build.sh
+          echo 'set -e' >> build.sh
           
-          # 检查是否有补丁文件需要应用
-          if [ -f "/tmp/crack_patched" ]; then
-            echo "已应用配置文件补丁，继续构建..."
-          else
-            echo "警告：没有找到配置补丁标记，请确保已运行修复脚本"
-          fi
+          echo '# 检查是否有补丁文件需要应用' >> build.sh
+          echo 'if [ -f "/tmp/crack_patched" ]; then' >> build.sh
+          echo '  echo "已应用配置文件补丁，继续构建..."' >> build.sh
+          echo 'else' >> build.sh
+          echo '  echo "警告：没有找到配置补丁标记，请确保已运行修复脚本"' >> build.sh
+          echo 'fi' >> build.sh
           
-          # 配置Git安全目录
-          git config --global --add safe.directory /build
+          echo '# 配置Git安全目录' >> build.sh
+          echo 'git config --global --add safe.directory /build' >> build.sh
           
-          # 设置版本信息
-          export VERSION=$(git describe --abbrev=0 || echo "v0.0.0")
-          export COMPILED_AT=$(date +%s)
-          export RELEASES_URL="https://api.github.com/repos/BishopFox/sliver/releases"
-          export GIT_COMMIT=$(git rev-parse HEAD || echo "unknown")
-          export GIT_DIRTY=$(git diff --quiet || echo 'Dirty')
-          export ARMORY_PUBLIC_KEY="RWSBpxpRWDrD7Fe+VvRE3c2VEDC2NK80rlNCj+BX0gz44Xw07r6KQD9L"
-          export ARMORY_REPO_URL="https://api.github.com/repos/sliverarmory/armory/releases"
+          echo '# 设置版本信息' >> build.sh
+          echo 'export VERSION=$(git describe --abbrev=0 || echo "v0.0.0")' >> build.sh
+          echo 'export COMPILED_AT=$(date +%s)' >> build.sh
+          echo 'export RELEASES_URL="https://api.github.com/repos/BishopFox/sliver/releases"' >> build.sh
+          echo 'export GIT_COMMIT=$(git rev-parse HEAD || echo "unknown")' >> build.sh
+          echo 'export GIT_DIRTY=$(git diff --quiet || echo '"'"'Dirty'"'"')' >> build.sh
+          echo 'export ARMORY_PUBLIC_KEY="RWSBpxpRWDrD7Fe+VvRE3c2VEDC2NK80rlNCj+BX0gz44Xw07r6KQD9L"' >> build.sh
+          echo 'export ARMORY_REPO_URL="https://api.github.com/repos/sliverarmory/armory/releases"' >> build.sh
           
-          # 设置构建标志
-          export LDFLAGS="-s -w \
-            -extldflags '-static -Wl,--strip-all' \
-            -X github.com/bishopfox/sliver/client/version.Version=${VERSION} \
-            -X github.com/bishopfox/sliver/client/version.CompiledAt=${COMPILED_AT} \
-            -X github.com/bishopfox/sliver/client/version.GithubReleasesURL=${RELEASES_URL} \
-            -X github.com/bishopfox/sliver/client/version.GitCommit=${GIT_COMMIT} \
-            -X github.com/bishopfox/sliver/client/version.GitDirty=${GIT_DIRTY} \
-            -X github.com/bishopfox/sliver/client/assets.DefaultArmoryPublicKey=${ARMORY_PUBLIC_KEY} \
-            -X github.com/bishopfox/sliver/client/assets.DefaultArmoryRepoURL=${ARMORY_REPO_URL}"
+          echo '# 设置构建标志' >> build.sh
+          echo 'export LDFLAGS="-s -w \' >> build.sh
+          echo '  -extldflags '"'"'-static -Wl,--strip-all'"'"' \' >> build.sh
+          echo '  -X github.com/bishopfox/sliver/client/version.Version=${VERSION} \' >> build.sh
+          echo '  -X github.com/bishopfox/sliver/client/version.CompiledAt=${COMPILED_AT} \' >> build.sh
+          echo '  -X github.com/bishopfox/sliver/client/version.GithubReleasesURL=${RELEASES_URL} \' >> build.sh
+          echo '  -X github.com/bishopfox/sliver/client/version.GitCommit=${GIT_COMMIT} \' >> build.sh
+          echo '  -X github.com/bishopfox/sliver/client/version.GitDirty=${GIT_DIRTY} \' >> build.sh
+          echo '  -X github.com/bishopfox/sliver/client/assets.DefaultArmoryPublicKey=${ARMORY_PUBLIC_KEY} \' >> build.sh
+          echo '  -X github.com/bishopfox/sliver/client/assets.DefaultArmoryRepoURL=${ARMORY_REPO_URL}"' >> build.sh
           
-          # 确保vendor目录存在
-          go mod vendor || echo "Vendor modules already present"
+          echo '# 确保vendor目录存在' >> build.sh
+          echo 'go mod vendor || echo "Vendor modules already present"' >> build.sh
           
-          # 确认配置文件修正已应用
-          echo "检查configs/crack.go的修改："
-          if grep -q "defaultMaxFileSize int64" ./server/configs/crack.go; then
-            echo "✓ 已成功应用int64类型修复"
-          else
-            echo "⚠️ 警告：未找到int64类型声明，尝试现在应用修复"
-            
-            # 紧急修复措施
-            sed -i 's/const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024/const defaultMaxFileSize int64 = 10 \* 1024 \* 1024 \* 1024/g' ./server/configs/crack.go
-            sed -i 's/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g' ./server/configs/crack.go
-            sed -i 's/MaxFileSize  int/MaxFileSize  int64/g' ./server/configs/crack.go
-            sed -i 's/MaxDiskUsage int/MaxDiskUsage int64/g' ./server/configs/crack.go
-            
-            echo "应用紧急修复后，再次检查："
-            grep -n "defaultMaxFileSize" ./server/configs/crack.go
-          fi
+          echo '# 确认配置文件修正已应用' >> build.sh
+          echo 'echo "检查configs/crack.go的修改："' >> build.sh
+          echo 'if grep -q "defaultMaxFileSize int64" ./server/configs/crack.go; then' >> build.sh
+          echo '  echo "✓ 已成功应用int64类型修复"' >> build.sh
+          echo 'else' >> build.sh
+          echo '  echo "⚠️ 警告：未找到int64类型声明，尝试现在应用修复"' >> build.sh
+          echo '' >> build.sh
+          echo '  # 紧急修复措施' >> build.sh
+          echo '  sed -i '"'"'s/const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024/const defaultMaxFileSize int64 = 10 \* 1024 \* 1024 \* 1024/g'"'"' ./server/configs/crack.go' >> build.sh
+          echo '  sed -i '"'"'s/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g'"'"' ./server/configs/crack.go' >> build.sh
+          echo '  sed -i '"'"'s/MaxFileSize  int/MaxFileSize  int64/g'"'"' ./server/configs/crack.go' >> build.sh
+          echo '  sed -i '"'"'s/MaxDiskUsage int/MaxDiskUsage int64/g'"'"' ./server/configs/crack.go' >> build.sh
+          echo '' >> build.sh
+          echo '  echo "应用紧急修复后，再次检查："' >> build.sh
+          echo '  grep -n "defaultMaxFileSize" ./server/configs/crack.go' >> build.sh
+          echo 'fi' >> build.sh
           
-          # 构建服务器 - 这次使用no_assets标签跳过资产嵌入
-          echo "Building sliver-server for CentOS 5.11 i686..."
-          go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server
+          echo '# 构建服务器 - 这次使用no_assets标签跳过资产嵌入' >> build.sh
+          echo 'echo "Building sliver-server for CentOS 5.11 i686..."' >> build.sh
+          echo 'go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server' >> build.sh
           
-          # 使用UPX进一步压缩二进制文件
-          echo "压缩二进制文件..."
-          upx -9 sliver-server-centos5-i686
+          echo '# 使用UPX进一步压缩二进制文件' >> build.sh
+          echo 'echo "压缩二进制文件..."' >> build.sh
+          echo 'upx -9 sliver-server-centos5-i686' >> build.sh
           
-          # 验证构建结果
-          file sliver-server-centos5-i686
+          echo '# 验证构建结果' >> build.sh
+          echo 'file sliver-server-centos5-i686' >> build.sh
           
-          # 确保二进制文件确实存在并显示其大小
-          ls -la sliver-server-centos5-i686
-          echo "构建完成，二进制文件大小: $(du -h sliver-server-centos5-i686 | cut -f1)"
+          echo '# 确保二进制文件确实存在并显示其大小' >> build.sh
+          echo 'ls -la sliver-server-centos5-i686' >> build.sh
+          echo 'echo "构建完成，二进制文件大小: $(du -h sliver-server-centos5-i686 | cut -f1)"' >> build.sh
           
-          # 确保文件在主机上可访问
-          chmod 755 sliver-server-centos5-i686
-          EOF
+          echo '# 确保文件在主机上可访问' >> build.sh
+          echo 'chmod 755 sliver-server-centos5-i686' >> build.sh
           
           # 使脚本可执行
           chmod +x build.sh
           
-      - name: Run build script in Docker
-        id: build
-        run: |
           # 在Docker容器中运行构建
           docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && ./build.sh 2>&1 | tee build.log || (echo '构建失败' && exit 1)"
           
@@ -432,32 +423,31 @@ jobs:
           overwrite: false
       - name: Create README
         run: |
-          cat > README-centos5-i686.md << 'EOF'
-          # Sliver Server for CentOS 5.11 i686
-          此构建专为老旧的CentOS 5.11 i686系统设计，构建设置如下：
-          - 基于静态编译的Go应用程序
-          - 使用Alpine进行交叉编译
-          - 目标系统：Linux 2.6.18内核，glibc 2.5
-          - 构建特性：
-            - 静态链接（无外部依赖）
-            - 32位i686架构
-            - 使用UPX压缩以减小体积
-          ## 使用方法
-          1. 下载二进制文件
-          2. 赋予执行权限：`chmod +x sliver-server-centos5-i686`
-          3. 运行服务器：`./sliver-server-centos5-i686`
-          首次运行时，服务器将生成所需的配置文件和证书。
-          
-          ## 功能限制
-          此版本使用了`no_assets`标签构建，意味着没有内置资源包（Go、编译器等）。
-          如果需要使用implant生成功能，请将必要的资源手动放置在相应目录中。
-          
-          ## 注意事项
-          
-          - 此二进制文件已经过静态编译，不依赖系统库
-          - 为保证最佳兼容性，使用`-extldflags '-static'`构建
-          - 使用UPX压缩，如运行时遇到问题，可尝试解压缩：`upx -d sliver-server-centos5-i686`
-          EOF
+          # 使用echo命令创建README文件，避免heredoc语法问题
+          echo '# Sliver Server for CentOS 5.11 i686' > README-centos5-i686.md
+          echo '此构建专为老旧的CentOS 5.11 i686系统设计，构建设置如下：' >> README-centos5-i686.md
+          echo '- 基于静态编译的Go应用程序' >> README-centos5-i686.md
+          echo '- 使用Alpine进行交叉编译' >> README-centos5-i686.md
+          echo '- 目标系统：Linux 2.6.18内核，glibc 2.5' >> README-centos5-i686.md
+          echo '- 构建特性：' >> README-centos5-i686.md
+          echo '  - 静态链接（无外部依赖）' >> README-centos5-i686.md
+          echo '  - 32位i686架构' >> README-centos5-i686.md
+          echo '  - 使用UPX压缩以减小体积' >> README-centos5-i686.md
+          echo '## 使用方法' >> README-centos5-i686.md
+          echo '1. 下载二进制文件' >> README-centos5-i686.md
+          echo '2. 赋予执行权限：`chmod +x sliver-server-centos5-i686`' >> README-centos5-i686.md
+          echo '3. 运行服务器：`./sliver-server-centos5-i686`' >> README-centos5-i686.md
+          echo '首次运行时，服务器将生成所需的配置文件和证书。' >> README-centos5-i686.md
+          echo '' >> README-centos5-i686.md
+          echo '## 功能限制' >> README-centos5-i686.md
+          echo '此版本使用了`no_assets`标签构建，意味着没有内置资源包（Go、编译器等）。' >> README-centos5-i686.md
+          echo '如果需要使用implant生成功能，请将必要的资源手动放置在相应目录中。' >> README-centos5-i686.md
+          echo '' >> README-centos5-i686.md
+          echo '## 注意事项' >> README-centos5-i686.md
+          echo '' >> README-centos5-i686.md
+          echo '- 此二进制文件已经过静态编译，不依赖系统库' >> README-centos5-i686.md
+          echo '- 为保证最佳兼容性，使用`-extldflags '"'"'-static'"'"'`构建' >> README-centos5-i686.md
+          echo '- 使用UPX压缩，如运行时遇到问题，可尝试解压缩：`upx -d sliver-server-centos5-i686`' >> README-centos5-i686.md
           
           # 确保README也放入artifacts目录
           mkdir -p ./artifacts
