@@ -50,6 +50,28 @@ jobs:
           # 创建目录结构
           mkdir -p ./server/assets/
           
+          # 修复 server/gogo/go.go 中的 GetZigDir 调用
+          if [ -f ./server/gogo/go.go ]; then
+            # 替换所有没有参数的 GetZigDir 调用，添加 GOOS 和 GOARCH 参数
+            sed -i 's/GetZigDir()/GetZigDir("linux", "386")/g' ./server/gogo/go.go
+            
+            # 打印修改后的文件，检查是否正确替换
+            echo "检查修改后的 gogo/go.go 文件:"
+            grep -n "GetZigDir" ./server/gogo/go.go
+          fi
+          
+          # 修复 configs/crack.go 中的整数溢出问题
+          if [ -f ./server/configs/crack.go ]; then
+            sed -i 's/defaultMaxFileSize := 10737418240/defaultMaxFileSize := int64(10737418240)/g' ./server/configs/crack.go
+            sed -i 's/defaultMaxFileSize = 10737418240/defaultMaxFileSize = int64(10737418240)/g' ./server/configs/crack.go
+            sed -i 's/: 10737418240,/: int64(10737418240),/g' ./server/configs/crack.go
+            sed -i 's/10737418240)/int64(10737418240))/g' ./server/configs/crack.go
+            
+            # 打印修改后的文件，检查是否正确替换
+            echo "检查修改后的 configs/crack.go 文件:"
+            grep -n "10737418240" ./server/configs/crack.go || echo "整数值已全部替换"
+          fi
+          
           # 检查缺失的函数
           grep -n "setupLog" ./server/assets/assets-helpers.go || echo "setupLog not found"
           grep -n "GetTrafficEncoderDir" ./server/assets/assets-helpers.go || echo "GetTrafficEncoderDir not found"
@@ -57,11 +79,6 @@ jobs:
           grep -n "GetRootAppDir" ./server/assets/assets-helpers.go || echo "GetRootAppDir not found"
           grep -n "GetZigDir" ./server/assets/assets-helpers.go || echo "GetZigDir not found"
 
-          # 修复configs/crack.go中的溢出问题
-          if [ -f ./server/configs/crack.go ]; then
-            sed -i 's/10737418240/int64(10737418240)/g' ./server/configs/crack.go
-          fi
-          
           # 创建补丁文件以修复缺少的函数
           cat > assets-patch.sh << 'EOF'
           #!/bin/bash
@@ -291,7 +308,25 @@ jobs:
           chmod +x build.sh
           
           # 在Docker容器中运行构建
-          docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && ./build.sh"
+          docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && ./build.sh 2>/tmp/build_error.log || (cat /tmp/build_error.log && false)"
+
+      - name: Verify patched files
+        if: failure()
+        run: |
+          echo "构建失败，检查修补的文件是否正确："
+          
+          echo "查看configs/crack.go中的defaultMaxFileSize:"
+          grep -n "defaultMaxFileSize" ./server/configs/crack.go || echo "未找到defaultMaxFileSize"
+          grep -n "10737418240" ./server/configs/crack.go || echo "整数值已全部替换"
+          
+          echo "查看所有GetZigDir调用:"
+          grep -n "GetZigDir" ./server/gogo/go.go || echo "未找到GetZigDir调用"
+          
+          echo "检查assets.go中的GetZigDir函数定义:"
+          grep -n "func GetZigDir" ./server/assets/assets.go || echo "未找到GetZigDir函数定义"
+          
+          echo "查看错误输出:"
+          cat /tmp/build_error.log || echo "没有错误日志"
 
       - name: Test binary compatibility
         run: |
