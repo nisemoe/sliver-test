@@ -370,10 +370,10 @@ jobs:
           
           echo '# 构建服务器 - 这次使用no_assets标签跳过资产嵌入' >> build.sh
           echo 'echo "Building sliver-server for CentOS 5.11 i686..."' >> build.sh
-          echo 'echo "使用的构建标签: netgo,osusergo,no_assets,server"' >> build.sh
+          echo 'echo "使用的构建标签: netgo,osusergo,no_assets,server,go_sqlite"' >> build.sh
           echo 'echo "使用的ldflags: ${LDFLAGS}"' >> build.sh
           echo 'set -x  # 开启详细输出模式' >> build.sh
-          echo 'go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server || {' >> build.sh
+          echo 'go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server,go_sqlite" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server || {' >> build.sh
           echo '  echo "构建失败，检查错误:" >&2' >> build.sh
           echo '  # 检查常见错误' >> build.sh
           echo '  if grep -q "int6464" ./server/configs/crack.go; then' >> build.sh
@@ -381,7 +381,7 @@ jobs:
           echo '    sed -i '"'"'s/int6464/int64/g'"'"' ./server/configs/crack.go' >> build.sh
           echo '    # 再次尝试构建' >> build.sh
           echo '    echo "重新尝试构建..." >&2' >> build.sh
-          echo '    go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server' >> build.sh
+          echo '    go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server,go_sqlite" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server' >> build.sh
           echo '  else' >> build.sh
           echo '    exit 1  # 如果不是拼写错误，则失败退出' >> build.sh
           echo '  fi' >> build.sh
@@ -429,7 +429,7 @@ jobs:
               
               # 尝试直接在当前环境编译
               echo "在主环境中尝试重新编译..."
-              docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && sed -i 's/int6464/int64/g' ./server/configs/crack.go && go build -mod=vendor -trimpath -tags netgo,osusergo,no_assets,server -ldflags '-s -w -extldflags \"-static -Wl,--strip-all\"' -o sliver-server-centos5-i686 ./server"
+              docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && sed -i 's/int6464/int64/g' ./server/configs/crack.go && go build -mod=vendor -trimpath -tags netgo,osusergo,no_assets,server,go_sqlite -ldflags '-s -w -extldflags \"-static -Wl,--strip-all\"' -o sliver-server-centos5-i686 ./server"
             fi
           fi
       
