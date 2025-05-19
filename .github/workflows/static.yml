@@ -306,7 +306,7 @@ jobs:
           ldd sliver-server-centos5-i686 || echo "Binary is static (expected)"
 
       - name: Upload sliver server
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: sliver-server-centos5-i686
           path: sliver-server-centos5-i686
@@ -347,7 +347,7 @@ jobs:
           EOF
 
       - name: Upload README
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: sliver-server-centos5-i686-docs
           path: README-centos5-i686.md 
