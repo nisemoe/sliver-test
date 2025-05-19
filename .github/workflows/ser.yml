@@ -24,215 +24,30 @@ jobs:
         run: |
           chmod +x go-assets.sh
           ls -la go-assets.sh
+          
       - name: Create Dockerfile for Alpine
         run: |
-          # 使用echo命令创建Dockerfile，避免heredoc语法问题
-          echo 'FROM golang:1.22.2-alpine3.19' > Dockerfile.alpine
-          echo '# 安装基本构建工具和依赖' >> Dockerfile.alpine
-          echo 'RUN apk add --no-cache build-base git ca-certificates upx curl bash zip unzip xz' >> Dockerfile.alpine
-          echo '# 设置工作目录' >> Dockerfile.alpine
-          echo 'WORKDIR /build' >> Dockerfile.alpine
-          echo '# 设置环境变量' >> Dockerfile.alpine
-          echo 'ENV CGO_ENABLED=0' >> Dockerfile.alpine
-          echo 'ENV GOOS=linux' >> Dockerfile.alpine
-          echo 'ENV GOARCH=386' >> Dockerfile.alpine
+          cat > Dockerfile.alpine << 'EOT'
+          FROM golang:1.22.2-alpine3.19
+          # 安装基本构建工具和依赖
+          RUN apk add --no-cache build-base git ca-certificates upx curl bash zip unzip xz
+          # 设置工作目录
+          WORKDIR /build
+          # 设置环境变量
+          ENV CGO_ENABLED=0
+          ENV GOOS=linux
+          ENV GOARCH=386
+          EOT
+
       - name: Build Docker image
         run: docker build -t sliver-build -f Dockerfile.alpine .
 
-      - name: Prepare patched asset files
-        run: |
-          # 创建目录结构
-          mkdir -p ./server/assets/
-          
-          # 检查是否已经应用了修复
-          if [ -f .overflow_fixed ]; then
-            echo "已应用整数溢出修复，无需再次修复"
-          fi
-          
-          if [ -f .zigdir_fixed ]; then
-            echo "已应用GetZigDir调用修复，无需再次修复"
-          fi
-          
-          # 使用echo命令创建assets-patch.sh脚本，避免heredoc语法问题
-          echo '#!/bin/bash' > assets-patch.sh
-          echo 'set -e' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          
-          # 创建assets_generate.go文件
-          echo 'cat > ./server/assets/assets_generate.go << '"'"'EOFILE'"'"'' >> assets-patch.sh
-          echo '//go:build generate' >> assets-patch.sh
-          echo '// +build generate' >> assets-patch.sh
-          echo 'package assets' >> assets-patch.sh
-          echo '// 这个文件用于go generate命令，但我们在编译时使用no_assets标签跳过它' >> assets-patch.sh
-          echo '// 此文件不包含实际功能，仅为了满足编译要求' >> assets-patch.sh
-          echo 'EOFILE' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          
-          # 创建assets.go文件
-          echo 'cat > ./server/assets/assets.go << '"'"'EOFILE'"'"'' >> assets-patch.sh
-          echo '//go:build !generate && no_assets' >> assets-patch.sh
-          echo '// +build !generate,no_assets' >> assets-patch.sh
-          echo 'package assets' >> assets-patch.sh
-          echo 'import (' >> assets-patch.sh
-          echo '  "errors"' >> assets-patch.sh
-          echo '  "io/fs"' >> assets-patch.sh
-          echo '  "os"' >> assets-patch.sh
-          echo '  "path/filepath"' >> assets-patch.sh
-          echo '  "log"' >> assets-patch.sh
-          echo ')' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// 定义常量' >> assets-patch.sh
-          echo 'const (' >> assets-patch.sh
-          echo '  GoDirName = "go"' >> assets-patch.sh
-          echo '  ZigDirName = "zig"' >> assets-patch.sh
-          echo ')' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// 自定义日志记录器' >> assets-patch.sh
-          echo 'type Logger struct {' >> assets-patch.sh
-          echo '    stdLogger *log.Logger' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo 'func (l *Logger) Info(args ...interface{}) {' >> assets-patch.sh
-          echo '    l.stdLogger.Println(args...)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo 'func (l *Logger) Infof(format string, args ...interface{}) {' >> assets-patch.sh
-          echo '    l.stdLogger.Printf(format, args...)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo 'func (l *Logger) Warn(args ...interface{}) {' >> assets-patch.sh
-          echo '    l.stdLogger.Println("[WARN]", args)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo 'func (l *Logger) Warnf(format string, args ...interface{}) {' >> assets-patch.sh
-          echo '    l.stdLogger.Printf("[WARN] "+format, args...)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo 'func (l *Logger) Error(args ...interface{}) {' >> assets-patch.sh
-          echo '    l.stdLogger.Println("[ERROR]", args)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo 'func (l *Logger) Errorf(format string, args ...interface{}) {' >> assets-patch.sh
-          echo '    l.stdLogger.Printf("[ERROR] "+format, args...)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo 'func (l *Logger) Debug(args ...interface{}) {' >> assets-patch.sh
-          echo '    l.stdLogger.Println("[DEBUG]", args)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo 'func (l *Logger) Debugf(format string, args ...interface{}) {' >> assets-patch.sh
-          echo '    l.stdLogger.Printf("[DEBUG] "+format, args...)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// 创建自定义日志记录器实例' >> assets-patch.sh
-          echo 'var setupLog = &Logger{' >> assets-patch.sh
-          echo '    stdLogger: log.New(os.Stderr, "assets: ", log.LstdFlags),' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// Setup - 初始化资产' >> assets-patch.sh
-          echo 'func Setup() {' >> assets-patch.sh
-          echo '    setupLog.Infof("[assets] Skip loading embedded assets (using no_assets tag)")' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// Asset - 实现Asset函数' >> assets-patch.sh
-          echo 'func Asset(name string) ([]byte, error) {' >> assets-patch.sh
-          echo '    setupLog.Debugf("Asset called for %s (not implemented in no_assets build)", name)' >> assets-patch.sh
-          echo '    return []byte{}, errors.New("assets not available in this build")' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// AssetDir - 实现AssetDir函数' >> assets-patch.sh
-          echo 'func AssetDir(name string) ([]string, error) {' >> assets-patch.sh
-          echo '    setupLog.Debugf("AssetDir called for %s (not implemented in no_assets build)", name)' >> assets-patch.sh
-          echo '    return []string{}, errors.New("assets not available in this build")' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// AssetInfo - 实现AssetInfo函数' >> assets-patch.sh
-          echo 'func AssetInfo(name string) (fs.FileInfo, error) {' >> assets-patch.sh
-          echo '    setupLog.Debugf("AssetInfo called for %s (not implemented in no_assets build)", name)' >> assets-patch.sh
-          echo '    return nil, errors.New("assets not available in this build")' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '// GetTrafficEncoderDir - 获取流量编码器目录' >> assets-patch.sh
-          echo 'func GetTrafficEncoderDir() string {' >> assets-patch.sh
-          echo '    return filepath.Join(".", "traffic-encoders")' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// GetRootAppDir - 获取应用程序根目录' >> assets-patch.sh
-          echo 'func GetRootAppDir() string {' >> assets-patch.sh
-          echo '    exePath, err := os.Executable()' >> assets-patch.sh
-          echo '    if err != nil {' >> assets-patch.sh
-          echo '        setupLog.Errorf("Failed to get executable path: %s", err)' >> assets-patch.sh
-          echo '        return "."' >> assets-patch.sh
-          echo '    }' >> assets-patch.sh
-          echo '    return filepath.Dir(exePath)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// GetZigDir - 获取Zig目录' >> assets-patch.sh
-          echo 'func GetZigDir(targetOS string, targetArch string) string {' >> assets-patch.sh
-          echo '    zigDir := filepath.Join(GetRootAppDir(), ".sliver-client", "zig")' >> assets-patch.sh
-          echo '    if _, err := os.Stat(zigDir); os.IsNotExist(err) {' >> assets-patch.sh
-          echo '        os.MkdirAll(zigDir, 0700)' >> assets-patch.sh
-          echo '    }' >> assets-patch.sh
-          echo '    return zigDir' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// 定义assetsFs变量' >> assets-patch.sh
-          echo 'var assetsFs = &AssetFS{' >> assets-patch.sh
-          echo '    Asset:    Asset,' >> assets-patch.sh
-          echo '    AssetDir: AssetDir,' >> assets-patch.sh
-          echo '    AssetInfo: AssetInfo,' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// AssetFS - 文件系统接口实现' >> assets-patch.sh
-          echo 'type AssetFS struct {' >> assets-patch.sh
-          echo '    Asset    func(name string) ([]byte, error)' >> assets-patch.sh
-          echo '    AssetDir func(name string) ([]string, error)' >> assets-patch.sh
-          echo '    AssetInfo func(name string) (fs.FileInfo, error)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// ReadFile - 添加的为了兼容assets-helpers.go的方法' >> assets-patch.sh
-          echo 'func (a *AssetFS) ReadFile(name string) ([]byte, error) {' >> assets-patch.sh
-          echo '    return a.Asset(name)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo '// 为了避免编译器报错，添加缺失的一些目录函数' >> assets-patch.sh
-          echo 'func GetGoDirPath(goOS string, goArch string) string {' >> assets-patch.sh
-          echo '    return filepath.Join(".", GoDirName, goOS, goArch) ' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo 'func GetGoZipPath(goOS string, goArch string) string {' >> assets-patch.sh
-          echo '    return filepath.Join(GetGoDirPath(goOS, goArch), "go.zip")' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo 'func GetSGNPath(goOS string, goArch string) string {' >> assets-patch.sh
-          echo '    return filepath.Join(".", "sgn", goOS, goArch)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo 'func GetGarblePath(goOS string, goArch string) string {' >> assets-patch.sh
-          echo '    return filepath.Join(".", "garble", goOS, goArch) ' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          echo 'func GetZigPath(goOS string, goArch string) string {' >> assets-patch.sh
-          echo '    return filepath.Join(".", ZigDirName, goOS, goArch)' >> assets-patch.sh
-          echo '}' >> assets-patch.sh
-          echo 'EOFILE' >> assets-patch.sh
-          echo '' >> assets-patch.sh
-          
-          # 修复assets-helpers.go
-          echo '# 创建assets-helpers.go的修复替换' >> assets-patch.sh
-          echo '# 我们首先检查是否存在原始文件，如果存在则备份它' >> assets-patch.sh
-          echo 'if [ -f ./server/assets/assets-helpers.go ]; then' >> assets-patch.sh
-          echo '    cp ./server/assets/assets-helpers.go ./server/assets/assets-helpers.go.bak' >> assets-patch.sh
-          echo '    # 尝试修复ReadFile错误' >> assets-patch.sh
-          echo '    sed -i '"'"'s/assetsFs\.ReadFile/assetsFs\.Asset/g'"'"' ./server/assets/assets-helpers.go' >> assets-patch.sh
-          echo 'fi' >> assets-patch.sh
-          
-          # 使脚本可执行并运行它
-          chmod +x assets-patch.sh
-          ./assets-patch.sh
-          
-          # 创建标记文件表示修复完成
-          echo "=== assets.go has been patched ===" > /tmp/assets_patched
       - name: Apply critical fixes for 32-bit build
         run: |
-          # 检查和修复configs/crack.go的整数溢出问题
+          # 修复configs/crack.go的整数溢出问题
           echo "检查configs/crack.go是否需要修复..."
           if grep -q "const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024" ./server/configs/crack.go; then
             echo "发现defaultMaxFileSize可能导致32位溢出，需要修复..."
-            
-            # 直接运行sed命令而不使用heredoc
-            echo "开始修复整数溢出问题..."
             
             # 备份原始文件
             cp ./server/configs/crack.go ./server/configs/crack.go.bak
@@ -240,24 +55,6 @@ jobs:
             # 1. 修复整数常量定义为int64类型
             sed -i 's/const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024/const defaultMaxFileSize int64 = 10 \* 1024 \* 1024 \* 1024/g' ./server/configs/crack.go
             sed -i 's/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g' ./server/configs/crack.go
-            
-            # 确保没有拼写错误
-            # 检查是否有int6464错误并修正
-            if grep -q "int6464" ./server/configs/crack.go; then
-              echo "发现拼写错误，将int6464修正为int64"
-              sed -i 's/int6464/int64/g' ./server/configs/crack.go
-            fi
-            
-            # 专门检查defaultMaxDiskUsage类型定义是否正确
-            echo "验证defaultMaxDiskUsage类型定义是否正确..."
-            if ! grep -q "const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize" ./server/configs/crack.go; then
-              echo "defaultMaxDiskUsage类型仍然有问题，使用更精确的替换"
-              # 先备份当前文件
-              cp ./server/configs/crack.go ./server/configs/crack.go.fix
-              # 尝试多种替换方式
-              sed -i 's/const defaultMaxDiskUsage.*= 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g' ./server/configs/crack.go
-              sed -i 's/int6464/int64/g' ./server/configs/crack.go
-            fi
             
             # 2. 修复结构体字段的类型
             sed -i 's/MaxFileSize  int/MaxFileSize  int64/g' ./server/configs/crack.go
@@ -267,18 +64,11 @@ jobs:
             sed -i 's/MaxFileSize int /MaxFileSize int64 /g' ./server/configs/crack.go
             sed -i 's/MaxDiskUsage int /MaxDiskUsage int64 /g' ./server/configs/crack.go
             
-            # 显示修复结果
-            echo "------------------------------"
-            echo "修复后的文件内容概览："
-            echo "------------------------------"
-            grep -n "defaultMaxFileSize" ./server/configs/crack.go
-            grep -n "defaultMaxDiskUsage" ./server/configs/crack.go
-            grep -n "MaxFileSize" ./server/configs/crack.go
-            grep -n "MaxDiskUsage" ./server/configs/crack.go
-            echo "------------------------------"
-            
-            # 创建标记文件供后续步骤检查
-            echo "已应用整数溢出修复" > .overflow_fixed
+            echo "修改后的文件内容概览："
+            grep -n "defaultMaxFileSize" ./server/configs/crack.go || echo "未找到defaultMaxFileSize"
+            grep -n "defaultMaxDiskUsage" ./server/configs/crack.go || echo "未找到defaultMaxDiskUsage"
+            grep -n "MaxFileSize" ./server/configs/crack.go || echo "未找到MaxFileSize"
+            grep -n "MaxDiskUsage" ./server/configs/crack.go || echo "未找到MaxDiskUsage"
           else
             echo "未发现需要修复的代码模式，跳过修复"
           fi
@@ -294,300 +84,319 @@ jobs:
             # 修复整数常量定义为int64类型
             sed -i 's/MaxLootSize = 2 \* 1024 \* 1024 \* 1024/MaxLootSize int64 = 2 \* 1024 \* 1024 \* 1024/g' ./server/loot/loot.go
             
-            # 确认修复
             echo "修复后的MaxLootSize:"
-            grep -n "MaxLootSize" ./server/loot/loot.go
+            grep -n "MaxLootSize" ./server/loot/loot.go || echo "未找到MaxLootSize"
             
-            # 创建标记文件
-            echo "已应用loot.go整数溢出修复" > .loot_fixed
+            # 修复类型比较，将len(lootReq.File.Data)转换为int64
+            sed -i 's/MaxLootSize < len(lootReq.File.Data)/MaxLootSize < int64(len(lootReq.File.Data))/g' ./server/loot/loot.go
+            
+            echo "修复后的类型比较:"
+            grep -n "MaxLootSize.*len" ./server/loot/loot.go || echo "未找到类型比较"
           fi
+
+      - name: Prepare patched asset files
+        run: |
+          # 创建目录结构
+          mkdir -p ./server/assets/
           
-          # 修复assets.English()未定义问题
-          echo "检查encoders.go是否需要修复..."
-          if grep -q "assets.English(" ./server/encoders/encoders.go; then
-            echo "发现assets.English()调用，在no_assets模式下需要修改..."
-            
-            # 备份原始文件
-            cp ./server/encoders/encoders.go ./server/encoders/encoders.go.bak
-            
-            # 直接使用sed命令修复，不使用heredoc
-            echo "修复assets.English()调用..."
-            sed -i '/util.SetEnglishDictionary(assets.English())/c\	\/\/ util.SetEnglishDictionary 在no_assets模式下禁用\n	\/\/ util.SetEnglishDictionary(assets.English())' ./server/encoders/encoders.go
-            
-            # 打印结果
-            echo "修复后的init函数:"
-            grep -A 10 "func init" ./server/encoders/encoders.go
-          fi
-          
-          # 修复generate/binaries.go中的问题
-          echo "检查generate/binaries.go中的问题..."
+          # 创建assets.go文件用于no_assets构建标签
+          cat > ./server/assets/assets_no_assets.go << 'EOT'
+          //go:build !generate && no_assets
+          // +build !generate,no_assets
+
+          package assets
+
+          import (
+              "errors"
+              "io/fs"
+              "os"
+              "path/filepath"
+              "log"
+              "strings"
+          )
+
+          // 定义常量
+          const (
+              GoDirName = "go"
+              ZigDirName = "zig"
+          )
+
+          // 自定义日志记录器
+          type Logger struct {
+              stdLogger *log.Logger
+          }
+          func (l *Logger) Info(args ...interface{}) {
+              l.stdLogger.Println(args...)
+          }
+          func (l *Logger) Infof(format string, args ...interface{}) {
+              l.stdLogger.Printf(format, args...)
+          }
+          func (l *Logger) Warn(args ...interface{}) {
+              l.stdLogger.Println("[WARN]", args)
+          }
+          func (l *Logger) Warnf(format string, args ...interface{}) {
+              l.stdLogger.Printf("[WARN] "+format, args...)
+          }
+          func (l *Logger) Error(args ...interface{}) {
+              l.stdLogger.Println("[ERROR]", args)
+          }
+          func (l *Logger) Errorf(format string, args ...interface{}) {
+              l.stdLogger.Printf("[ERROR] "+format, args...)
+          }
+          func (l *Logger) Debug(args ...interface{}) {
+              l.stdLogger.Println("[DEBUG]", args)
+          }
+          func (l *Logger) Debugf(format string, args ...interface{}) {
+              l.stdLogger.Printf("[DEBUG] "+format, args...)
+          }
+
+          // 创建自定义日志记录器实例
+          var setupLog = &Logger{
+              stdLogger: log.New(os.Stderr, "assets: ", log.LstdFlags),
+          }
+
+          // Setup - 初始化资产
+          func Setup(force bool, echo bool) {
+              setupLog.Infof("[assets] Skip loading embedded assets (using no_assets tag)")
+          }
+
+          // Asset - 实现Asset函数
+          func Asset(name string) ([]byte, error) {
+              setupLog.Debugf("Asset called for %s (not implemented in no_assets build)", name)
+              return []byte{}, errors.New("assets not available in this build")
+          }
+
+          // AssetDir - 实现AssetDir函数
+          func AssetDir(name string) ([]string, error) {
+              setupLog.Debugf("AssetDir called for %s (not implemented in no_assets build)", name)
+              return []string{}, errors.New("assets not available in this build")
+          }
+
+          // AssetInfo - 实现AssetInfo函数
+          func AssetInfo(name string) (fs.FileInfo, error) {
+              setupLog.Debugf("AssetInfo called for %s (not implemented in no_assets build)", name)
+              return nil, errors.New("assets not available in this build")
+          }
+
+          // English - 为英文编码器提供一组基本英语单词
+          func English() []string {
+              // 提供一个基本的单词列表，用于替代完整的assets.English()字典
+              return []string{
+                  "unauthorized", "access", "denied", "internal", "server", "error", 
+                  "invalid", "password", "username", "permission", "forbidden", "unknown",
+                  "system", "message", "service", "network", "computer", "protocol", "data"
+              }
+          }
+
+          // GetTrafficEncoderDir - 获取流量编码器目录
+          func GetTrafficEncoderDir() string {
+              return filepath.Join(GetRootAppDir(), "traffic-encoders")
+          }
+
+          // GetRootAppDir - 获取应用程序根目录
+          func GetRootAppDir() string {
+              exePath, err := os.Executable()
+              if err != nil {
+                  setupLog.Errorf("Failed to get executable path: %s", err)
+                  return "."
+              }
+              return filepath.Dir(exePath)
+          }
+
+          // GetZigDir - 获取Zig目录
+          func GetZigDir(targetOS string, targetArch string) string {
+              zigDir := filepath.Join(GetRootAppDir(), ".sliver-client", "zig")
+              if _, err := os.Stat(zigDir); os.IsNotExist(err) {
+                  os.MkdirAll(zigDir, 0700)
+              }
+              return zigDir
+          }
+
+          // 定义assetsFs变量
+          var assetsFs = &AssetFS{
+              Asset:    Asset,
+              AssetDir: AssetDir,
+              AssetInfo: AssetInfo,
+          }
+
+          // AssetFS - 文件系统接口实现
+          type AssetFS struct {
+              Asset    func(name string) ([]byte, error)
+              AssetDir func(name string) ([]string, error)
+              AssetInfo func(name string) (fs.FileInfo, error)
+          }
+
+          // ReadFile - 添加的为了兼容assets-helpers.go的方法
+          func (a *AssetFS) ReadFile(name string) ([]byte, error) {
+              return a.Asset(name)
+          }
+
+          // 为了避免编译器报错，添加缺失的一些目录函数
+          func GetGoDirPath(goOS string, goArch string) string {
+              return filepath.Join(".", GoDirName, goOS, goArch) 
+          }
+
+          func GetGoZipPath(goOS string, goArch string) string {
+              return filepath.Join(GetGoDirPath(goOS, goArch), "go.zip")
+          }
+
+          func GetSGNPath(goOS string, goArch string) string {
+              return filepath.Join(".", "sgn", goOS, goArch)
+          }
+
+          func GetGarblePath(goOS string, goArch string) string {
+              return filepath.Join(".", "garble", goOS, goArch) 
+          }
+
+          func GetZigPath(goOS string, goArch string) string {
+              return filepath.Join(".", ZigDirName, goOS, goArch)
+          }
+          EOT
+
+          # 创建generate/binaries.go的补丁，修复assets.English()和GetZigDir问题
           if [ -f ./server/generate/binaries.go ]; then
             echo "修复binaries.go中的assets.English调用和GetZigDir调用..."
             
             # 备份原始文件
             cp ./server/generate/binaries.go ./server/generate/binaries.go.bak
             
-            # 修复assets.English()调用
-            sed -i '/assets.English(/c\	\/\/ 在no_assets模式下禁用\n	\/\/ English词典在no_assets模式下不可用' ./server/generate/binaries.go
-            
-            # 修复GetZigDir()调用，添加参数
-            sed -i 's/assets.GetZigDir()/assets.GetZigDir("linux", "386")/g' ./server/generate/binaries.go
-            
-            # 打印结果
-            echo "修复后的GetZigDir调用:"
-            grep -n "GetZigDir" ./server/generate/binaries.go
-          fi
-          
-          # 修复loot.go中的类型不匹配问题
-          echo "检查loot.go中的类型不匹配问题..."
-          if grep -q "MaxLootSize int64" ./server/loot/loot.go; then
-            echo "修复loot.go中的类型比较问题..."
-            
-            # 备份原始文件(如果之前没有备份的话)
-            if [ ! -f ./server/loot/loot.go.bak ]; then
-              cp ./server/loot/loot.go ./server/loot/loot.go.bak
+            # 1. 找到renderImplantEnglish函数以添加allWords变量
+            if grep -q "func renderImplantEnglish" ./server/generate/binaries.go; then
+              sed -i '/func renderImplantEnglish/,/^}/ {
+                # 如果allWords直接引用assets.English()，修改为使用局部定义变量
+                s/allWords := assets.English()/allWords := []string{"unauthorized", "access", "denied", "internal", "server", "error", "invalid", "password", "username", "permission"}/g
+              }' ./server/generate/binaries.go
             fi
             
-            # 修复类型比较，将len(lootReq.File.Data)转换为int64
-            sed -i 's/MaxLootSize < len(lootReq.File.Data)/MaxLootSize < int64(len(lootReq.File.Data))/g' ./server/loot/loot.go
+            # 2. 修复GetZigDir()调用，添加参数
+            sed -i 's/assets.GetZigDir()/assets.GetZigDir("linux", "386")/g' ./server/generate/binaries.go
             
-            # 打印结果
-            echo "修复后的类型比较:"
-            grep -n "MaxLootSize.*len" ./server/loot/loot.go
+            echo "修复后的GetZigDir调用:"
+            grep -n "GetZigDir" ./server/generate/binaries.go || echo "未找到GetZigDir调用"
+          fi
+          
+          # 修复encoders.go中的assets.English()调用
+          if grep -q "util.SetEnglishDictionary(assets.English())" ./server/encoders/encoders.go; then
+            echo "修复encoders.go中的assets.English调用..."
+            
+            # 备份原始文件
+            cp ./server/encoders/encoders.go ./server/encoders/encoders.go.bak
+            
+            # 使用sed替换，执行注释掉util.SetEnglishDictionary(assets.English())
+            sed -i 's/util.SetEnglishDictionary(assets.English())/\/\/ util.SetEnglishDictionary(assets.English()) \/\/ 在no_assets模式下禁用/g' ./server/encoders/encoders.go
+            
+            echo "修改后的init函数:"
+            grep -A 10 "func init" ./server/encoders/encoders.go || echo "未找到init函数"
           fi
           
           # 检查和修复gogo/go.go中的GetZigDir调用
-          echo "检查gogo/go.go中的GetZigDir调用..."
           if [ -f ./server/gogo/go.go ] && grep -q "GetZigDir()" ./server/gogo/go.go; then
             echo "发现无参数的GetZigDir调用，需要修复..."
             sed -i 's/GetZigDir()/GetZigDir("linux", "386")/g' ./server/gogo/go.go
             
-            # 显示修复结果
             echo "修复后的GetZigDir调用："
-            grep -n "GetZigDir" ./server/gogo/go.go
-            
-            # 创建标记文件供后续步骤检查
-            echo "已应用GetZigDir修复" > .zigdir_fixed
-          else
-            echo "未发现需要修复的GetZigDir调用，或文件不存在"
-          fi
-      - name: Build Sliver for CentOS 5.11
-        run: |
-          # 额外的预构建检查
-          echo "执行最后的预构建检查..."
-          if grep -q "int6464" ./server/configs/crack.go; then
-            echo "发现int6464拼写错误，修复为int64..."
-            sed -i 's/int6464/int64/g' ./server/configs/crack.go
-            echo "修复后:"
-            grep -n "defaultMaxDiskUsage" ./server/configs/crack.go
+            grep -n "GetZigDir" ./server/gogo/go.go || echo "未找到GetZigDir调用"
           fi
 
-          # 检查loot.go和encoders.go修复
-          echo "检查所有修复是否已应用..."
+      - name: Build Sliver for CentOS 5.11
+        run: |
+          # 创建构建脚本
+          cat > build.sh << 'EOT'
+          #!/bin/bash
+          set -e
           
-          # 检查loot.go
-          if ! grep -q "MaxLootSize int64" ./server/loot/loot.go && grep -q "MaxLootSize" ./server/loot/loot.go; then
-            echo "修复loot.go中的MaxLootSize..."
+          # 配置Git安全目录
+          git config --global --add safe.directory /build
+          
+          # 设置版本信息
+          export VERSION=$(git describe --abbrev=0 || echo "v0.0.0")
+          export COMPILED_AT=$(date +%s)
+          export RELEASES_URL="https://api.github.com/repos/BishopFox/sliver/releases"
+          export GIT_COMMIT=$(git rev-parse HEAD || echo "unknown")
+          export GIT_DIRTY=$(git diff --quiet || echo 'Dirty')
+          export ARMORY_PUBLIC_KEY="RWSBpxpRWDrD7Fe+VvRE3c2VEDC2NK80rlNCj+BX0gz44Xw07r6KQD9L"
+          export ARMORY_REPO_URL="https://api.github.com/repos/sliverarmory/armory/releases"
+          
+          # 设置构建标志
+          export LDFLAGS="-s -w \
+            -extldflags '-static -Wl,--strip-all' \
+            -X github.com/bishopfox/sliver/client/version.Version=${VERSION} \
+            -X github.com/bishopfox/sliver/client/version.CompiledAt=${COMPILED_AT} \
+            -X github.com/bishopfox/sliver/client/version.GithubReleasesURL=${RELEASES_URL} \
+            -X github.com/bishopfox/sliver/client/version.GitCommit=${GIT_COMMIT} \
+            -X github.com/bishopfox/sliver/client/version.GitDirty=${GIT_DIRTY} \
+            -X github.com/bishopfox/sliver/client/assets.DefaultArmoryPublicKey=${ARMORY_PUBLIC_KEY} \
+            -X github.com/bishopfox/sliver/client/assets.DefaultArmoryRepoURL=${ARMORY_REPO_URL}"
+          
+          # 确保vendor目录存在
+          go mod vendor || echo "Vendor modules already present"
+          
+          # 最终构建检查
+          echo "=============== 最终构建前检查 ==============="
+          
+          # 检查configs/crack.go的修改
+          echo "检查configs/crack.go的类型修改..."
+          if ! grep -q "defaultMaxFileSize int64" ./server/configs/crack.go; then
+            echo "⚠️ defaultMaxFileSize未定义为int64类型，应用修复..."
+            sed -i 's/const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024/const defaultMaxFileSize int64 = 10 \* 1024 \* 1024 \* 1024/g' ./server/configs/crack.go
+          fi
+          
+          if ! grep -q "defaultMaxDiskUsage int64" ./server/configs/crack.go; then
+            echo "⚠️ defaultMaxDiskUsage未定义为int64类型，应用修复..."
+            sed -i 's/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g' ./server/configs/crack.go
+          fi
+          
+          # 检查loot.go的修改
+          echo "检查loot.go的类型修改..."
+          if ! grep -q "MaxLootSize int64" ./server/loot/loot.go; then
+            echo "⚠️ MaxLootSize未定义为int64类型，应用修复..."
             sed -i 's/MaxLootSize = 2 \* 1024 \* 1024 \* 1024/MaxLootSize int64 = 2 \* 1024 \* 1024 \* 1024/g' ./server/loot/loot.go
           fi
           
-          # 检查encoders.go
-          if grep -q "assets.English()" ./server/encoders/encoders.go; then
-            echo "修复encoders.go中的assets.English调用..."
-            sed -i '/util.SetEnglishDictionary(assets.English())/c\	\/\/ util.SetEnglishDictionary 在no_assets模式下禁用\n	\/\/ util.SetEnglishDictionary(assets.English())' ./server/encoders/encoders.go
+          if ! grep -q "MaxLootSize < int64(len" ./server/loot/loot.go; then
+            echo "⚠️ loot.go中的类型比较未修复，应用修复..."
+            sed -i 's/MaxLootSize < len(lootReq.File.Data)/MaxLootSize < int64(len(lootReq.File.Data))/g' ./server/loot/loot.go
           fi
           
-          # 打印修复结果
-          echo "==== 修复结果检查 ===="
-          echo "1. loot.go中的MaxLootSize:"
-          grep -n "MaxLootSize" ./server/loot/loot.go || echo "未找到MaxLootSize定义"
+          # 确认encoders.go中的Assets.English调用已经注释
+          if grep -q "util.SetEnglishDictionary(assets.English())" ./server/encoders/encoders.go; then
+            echo "⚠️ encoders.go中的assets.English调用仍然存在，应用修复..."
+            sed -i 's/util.SetEnglishDictionary(assets.English())/\/\/ util.SetEnglishDictionary(assets.English()) \/\/ 在no_assets模式下禁用/g' ./server/encoders/encoders.go
+          fi
           
-          echo "2. encoders.go中的init函数:"
-          grep -A 5 "func init" ./server/encoders/encoders.go || echo "未找到init函数"
+          echo "构建标志: netgo,osusergo,no_assets,server,go_sqlite"
+          echo "使用的ldflags: ${LDFLAGS}"
           
-          echo "3. configs/crack.go中的defaultMaxFileSize和defaultMaxDiskUsage:"
-          grep -n "defaultMaxFileSize" ./server/configs/crack.go || echo "未找到defaultMaxFileSize"
-          grep -n "defaultMaxDiskUsage" ./server/configs/crack.go || echo "未找到defaultMaxDiskUsage"
+          echo "=============== 开始构建 ==============="
+          # 构建服务器 - 使用no_assets标签跳过资产嵌入，使用go_sqlite启用纯Go的SQLite实现
+          go build -buildvcs=false -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server,go_sqlite" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server
           
-          # 创建build.sh脚本
-          echo '#!/bin/sh' > build.sh
-          echo 'set -e' >> build.sh
+          # 使用UPX进一步压缩二进制文件
+          echo "压缩二进制文件..."
+          upx -9 sliver-server-centos5-i686
           
-          echo '# 检查是否有补丁文件需要应用' >> build.sh
-          echo 'if [ -f "/tmp/crack_patched" ]; then' >> build.sh
-          echo '  echo "已应用配置文件补丁，继续构建..."' >> build.sh
-          echo 'else' >> build.sh
-          echo '  echo "警告：没有找到配置补丁标记，请确保已运行修复脚本"' >> build.sh
-          echo 'fi' >> build.sh
+          # 验证构建结果
+          file sliver-server-centos5-i686
           
-          echo '# 配置Git安全目录' >> build.sh
-          echo 'git config --global --add safe.directory /build' >> build.sh
+          # 确保二进制文件确实存在并显示其大小
+          ls -la sliver-server-centos5-i686
+          echo "构建完成，二进制文件大小: $(du -h sliver-server-centos5-i686 | cut -f1)"
           
-          echo '# 设置版本信息' >> build.sh
-          echo 'export VERSION=$(git describe --abbrev=0 || echo "v0.0.0")' >> build.sh
-          echo 'export COMPILED_AT=$(date +%s)' >> build.sh
-          echo 'export RELEASES_URL="https://api.github.com/repos/BishopFox/sliver/releases"' >> build.sh
-          echo 'export GIT_COMMIT=$(git rev-parse HEAD || echo "unknown")' >> build.sh
-          echo 'export GIT_DIRTY=$(git diff --quiet || echo '"'"'Dirty'"'"')' >> build.sh
-          echo 'export ARMORY_PUBLIC_KEY="RWSBpxpRWDrD7Fe+VvRE3c2VEDC2NK80rlNCj+BX0gz44Xw07r6KQD9L"' >> build.sh
-          echo 'export ARMORY_REPO_URL="https://api.github.com/repos/sliverarmory/armory/releases"' >> build.sh
-          
-          echo '# 设置构建标志' >> build.sh
-          echo 'export LDFLAGS="-s -w \' >> build.sh
-          echo '  -extldflags '"'"'-static -Wl,--strip-all'"'"' \' >> build.sh
-          echo '  -X github.com/bishopfox/sliver/client/version.Version=${VERSION} \' >> build.sh
-          echo '  -X github.com/bishopfox/sliver/client/version.CompiledAt=${COMPILED_AT} \' >> build.sh
-          echo '  -X github.com/bishopfox/sliver/client/version.GithubReleasesURL=${RELEASES_URL} \' >> build.sh
-          echo '  -X github.com/bishopfox/sliver/client/version.GitCommit=${GIT_COMMIT} \' >> build.sh
-          echo '  -X github.com/bishopfox/sliver/client/version.GitDirty=${GIT_DIRTY} \' >> build.sh
-          echo '  -X github.com/bishopfox/sliver/client/assets.DefaultArmoryPublicKey=${ARMORY_PUBLIC_KEY} \' >> build.sh
-          echo '  -X github.com/bishopfox/sliver/client/assets.DefaultArmoryRepoURL=${ARMORY_REPO_URL}"' >> build.sh
-          
-          echo '# 确保vendor目录存在' >> build.sh
-          echo 'go mod vendor || echo "Vendor modules already present"' >> build.sh
-          
-          echo '# 确认配置文件修正已应用' >> build.sh
-          echo 'echo "检查configs/crack.go的修改："' >> build.sh
-          echo 'if grep -q "defaultMaxFileSize int64" ./server/configs/crack.go; then' >> build.sh
-          echo '  echo "✓ 已成功应用int64类型修复"' >> build.sh
-          echo 'else' >> build.sh
-          echo '  echo "⚠️ 警告：未找到int64类型声明，尝试现在应用修复"' >> build.sh
-          echo '' >> build.sh
-          echo '  # 紧急修复措施' >> build.sh
-          echo '  sed -i '"'"'s/const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024/const defaultMaxFileSize int64 = 10 \* 1024 \* 1024 \* 1024/g'"'"' ./server/configs/crack.go' >> build.sh
-          echo '  sed -i '"'"'s/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g'"'"' ./server/configs/crack.go' >> build.sh
-          echo '  sed -i '"'"'s/MaxFileSize  int/MaxFileSize  int64/g'"'"' ./server/configs/crack.go' >> build.sh
-          echo '  sed -i '"'"'s/MaxDiskUsage int/MaxDiskUsage int64/g'"'"' ./server/configs/crack.go' >> build.sh
-          echo '' >> build.sh
-          
-          echo '  # 修复可能的类型拼写错误' >> build.sh
-          echo '  if grep -q "int6464" ./server/configs/crack.go; then' >> build.sh
-          echo '    echo "发现int6464拼写错误，修正为int64"' >> build.sh
-          echo '    sed -i '"'"'s/int6464/int64/g'"'"' ./server/configs/crack.go' >> build.sh
-          echo '  fi' >> build.sh
-          echo '' >> build.sh
-          
-          echo '  # 修复loot.go中的整数溢出问题' >> build.sh
-          echo '  if grep -q "MaxLootSize = 2 \* 1024 \* 1024 \* 1024" ./server/loot/loot.go; then' >> build.sh
-          echo '    echo "修复loot.go中的MaxLootSize整数溢出问题..."' >> build.sh
-          echo '    sed -i '"'"'s/MaxLootSize = 2 \* 1024 \* 1024 \* 1024/MaxLootSize int64 = 2 \* 1024 \* 1024 \* 1024/g'"'"' ./server/loot/loot.go' >> build.sh
-          echo '  fi' >> build.sh
-          echo '' >> build.sh
-          
-          echo '  # 修复loot.go中的类型不匹配问题' >> build.sh
-          echo '  if grep -q "MaxLootSize int64" ./server/loot/loot.go; then' >> build.sh
-          echo '    echo "修复loot.go中的类型比较问题..."' >> build.sh
-          echo '    sed -i '"'"'s/MaxLootSize < len(lootReq.File.Data)/MaxLootSize < int64(len(lootReq.File.Data))/g'"'"' ./server/loot/loot.go' >> build.sh
-          echo '  fi' >> build.sh
-          echo '' >> build.sh
-          
-          echo '  # 修复assets.English()未定义问题' >> build.sh
-          echo '  if grep -q "assets.English(" ./server/encoders/encoders.go; then' >> build.sh
-          echo '    echo "修复assets.English()在no_assets模式下未定义的问题..."' >> build.sh
-          echo '    sed -i '"'"'/util.SetEnglishDictionary(assets.English())/c\\t\/\/ util.SetEnglishDictionary 在no_assets模式下禁用\\n\\t\/\/ util.SetEnglishDictionary(assets.English())'"'"' ./server/encoders/encoders.go' >> build.sh
-          echo '  fi' >> build.sh
-          echo '' >> build.sh
-          
-          echo '  # 修复binaries.go中的问题' >> build.sh
-          echo '  if [ -f ./server/generate/binaries.go ]; then' >> build.sh
-          echo '    echo "修复binaries.go中的assets.English调用和GetZigDir调用..."' >> build.sh
-          echo '    sed -i '"'"'/assets.English(/c\\t\/\/ 在no_assets模式下禁用\\n\\t\/\/ English词典在no_assets模式下不可用'"'"' ./server/generate/binaries.go' >> build.sh
-          echo '    sed -i '"'"'s/assets.GetZigDir()/assets.GetZigDir("linux", "386")/g'"'"' ./server/generate/binaries.go' >> build.sh
-          echo '  fi' >> build.sh
-          echo '' >> build.sh
-          
-          echo '  echo "应用紧急修复后，再次检查："' >> build.sh
-          echo '  grep -n "defaultMaxFileSize" ./server/configs/crack.go' >> build.sh
-          echo 'fi' >> build.sh
-          
-          echo '# 构建服务器 - 这次使用no_assets标签跳过资产嵌入' >> build.sh
-          echo 'echo "Building sliver-server for CentOS 5.11 i686..."' >> build.sh
-          echo 'echo "使用的构建标签: netgo,osusergo,no_assets,server,go_sqlite"' >> build.sh
-          echo 'echo "使用的ldflags: ${LDFLAGS}"' >> build.sh
-          echo 'set -x  # 开启详细输出模式' >> build.sh
-          echo 'go build -buildvcs=false -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server,go_sqlite" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server || {' >> build.sh
-          echo '  echo "构建失败，检查错误:" >&2' >> build.sh
-          echo '  # 检查常见错误' >> build.sh
-          echo '  if grep -q "int6464" ./server/configs/crack.go; then' >> build.sh
-          echo '    echo "发现int6464拼写错误，重新尝试修复:" >&2' >> build.sh
-          echo '    sed -i '"'"'s/int6464/int64/g'"'"' ./server/configs/crack.go' >> build.sh
-          echo '    # 再次尝试构建' >> build.sh
-          echo '    echo "重新尝试构建..." >&2' >> build.sh
-          echo '    go build -buildvcs=false -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server,go_sqlite" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server' >> build.sh
-          echo '  else' >> build.sh
-          echo '    exit 1  # 如果不是拼写错误，则失败退出' >> build.sh
-          echo '  fi' >> build.sh
-          echo '}' >> build.sh
-          echo 'set +x  # 关闭详细输出模式' >> build.sh
-          
-          echo '# 使用UPX进一步压缩二进制文件' >> build.sh
-          echo 'echo "压缩二进制文件..."' >> build.sh
-          echo 'upx -9 sliver-server-centos5-i686' >> build.sh
-          
-          echo '# 验证构建结果' >> build.sh
-          echo 'file sliver-server-centos5-i686' >> build.sh
-          
-          echo '# 确保二进制文件确实存在并显示其大小' >> build.sh
-          echo 'ls -la sliver-server-centos5-i686' >> build.sh
-          echo 'echo "构建完成，二进制文件大小: $(du -h sliver-server-centos5-i686 | cut -f1)"' >> build.sh
-          
-          echo '# 确保文件在主机上可访问' >> build.sh
-          echo 'chmod 755 sliver-server-centos5-i686' >> build.sh
+          # 确保文件在主机上可访问
+          chmod 755 sliver-server-centos5-i686
+          EOT
           
           # 使脚本可执行
           chmod +x build.sh
           
           # 在Docker容器中运行构建
           docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && ./build.sh 2>&1 | tee build.log || (echo '构建失败' && exit 1)"
-          
-      - name: Output build log (Success or Failure)
+
+      - name: Output build log
         if: always()
         run: |
           echo "构建日志输出:"
           cat build.log || echo "No build log found"
-          
-          # 如果失败，检查文件内容并尝试直接修复
-          if [ ! -f "./sliver-server-centos5-i686" ]; then
-            echo "Build failed, checking configs/crack.go for errors..."
-            
-            # 直接修复所有可能的int6464错误
-            if grep -q "int6464" ./server/configs/crack.go; then
-              echo "发现int6464拼写错误，直接修复为int64"
-              sed -i 's/int6464/int64/g' ./server/configs/crack.go
-              
-              # 显示修复后的内容
-              echo "修复后的内容:"
-              grep -n "defaultMaxDiskUsage" ./server/configs/crack.go
-            fi
-            
-            # 尝试直接在当前环境编译
-            echo "在主环境中尝试重新编译..."
-            docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && \
-              echo '应用所有已知修复...' && \
-              sed -i 's/int6464/int64/g' ./server/configs/crack.go && \
-              sed -i 's/const defaultMaxFileSize = 10 \* 1024 \* 1024 \* 1024/const defaultMaxFileSize int64 = 10 \* 1024 \* 1024 \* 1024/g' ./server/configs/crack.go && \
-              sed -i 's/const defaultMaxDiskUsage = 5 \* defaultMaxFileSize/const defaultMaxDiskUsage int64 = 5 \* defaultMaxFileSize/g' ./server/configs/crack.go && \
-              sed -i 's/MaxLootSize = 2 \* 1024 \* 1024 \* 1024/MaxLootSize int64 = 2 \* 1024 \* 1024 \* 1024/g' ./server/loot/loot.go && \
-              sed -i 's/MaxLootSize < len(lootReq.File.Data)/MaxLootSize < int64(len(lootReq.File.Data))/g' ./server/loot/loot.go && \
-              sed -i '/util.SetEnglishDictionary(assets.English())/c\\t\\/\\/ util.SetEnglishDictionary 在no_assets模式下禁用\\n\\t\\/\\/ util.SetEnglishDictionary(assets.English())' ./server/encoders/encoders.go && \
-              ([ -f ./server/generate/binaries.go ] && sed -i '/assets.English(/c\\t\\/\\/ 在no_assets模式下禁用\\n\\t\\/\\/ English词典在no_assets模式下不可用' ./server/generate/binaries.go || echo '没有binaries.go文件') && \
-              ([ -f ./server/generate/binaries.go ] && sed -i 's/assets.GetZigDir()/assets.GetZigDir(\"linux\", \"386\")/g' ./server/generate/binaries.go || echo '没有binaries.go文件') && \
-              echo '显示修复后的文件:' && \
-              echo '=== loot.go ===' && \
-              grep -n 'MaxLootSize' ./server/loot/loot.go && \
-              echo '=== encoders.go ===' && \
-              grep -A 5 'func init' ./server/encoders/encoders.go && \
-              echo '=== crack.go ===' && \
-              grep -n 'defaultMaxFileSize\|defaultMaxDiskUsage' ./server/configs/crack.go && \
-              ([ -f ./server/generate/binaries.go ] && echo '=== binaries.go ===' && grep -n 'GetZigDir\|English' ./server/generate/binaries.go || echo '没有binaries.go文件') && \
-              echo '开始构建...' && \
-              go build -buildvcs=false -mod=vendor -trimpath -tags netgo,osusergo,no_assets,server,go_sqlite -ldflags '-s -w -extldflags \"-static -Wl,--strip-all\"' -o sliver-server-centos5-i686 ./server || { \
-                echo '构建失败，显示更多调试信息:' && \
-                grep -n 'MaxLootSize' ./server/loot/loot.go && \
-                grep -A 10 'func init' ./server/encoders/encoders.go && \
-                false; \
-              }"
-          fi
       
       - name: Prepare binary for upload
         run: |
@@ -612,27 +421,6 @@ jobs:
           else
             echo "Binary NOT found in workspace"
             find . -name "sliver-server*"
-            
-            # 检查修补的文件是否正确
-            echo "检查修补的文件是否正确："
-            
-            echo "查看configs/crack.go中的defaultMaxFileSize:"
-            grep -n "defaultMaxFileSize" ./server/configs/crack.go || echo "未找到defaultMaxFileSize"
-            grep -n "10737418240" ./server/configs/crack.go || echo "整数值已全部替换"
-            grep -n "int64" ./server/configs/crack.go || echo "未找到int64转换"
-            
-            echo "显示lines附近的内容:"
-            if [ -f ./server/configs/crack.go ]; then
-              echo "======= 显示第104行附近的内容 ======="
-              sed -n '99,110p' ./server/configs/crack.go
-            fi
-            
-            echo "查看所有GetZigDir调用:"
-            grep -n "GetZigDir" ./server/gogo/go.go || echo "未找到GetZigDir调用"
-            
-            echo "检查assets.go中的GetZigDir函数定义:"
-            grep -n "func GetZigDir" ./server/assets/assets.go || echo "未找到GetZigDir函数定义"
-            
             exit 1
           fi
       
@@ -644,43 +432,44 @@ jobs:
           if-no-files-found: error
           compression-level: 6
           overwrite: false
+
       - name: Create README
         run: |
-          # 使用echo命令创建README文件，避免heredoc语法问题
-          echo '# Sliver Server for CentOS 5.11 i686' > README-centos5-i686.md
-          echo '此构建专为老旧的CentOS 5.11 i686系统设计，构建设置如下：' >> README-centos5-i686.md
-          echo '- 基于静态编译的Go应用程序' >> README-centos5-i686.md
-          echo '- 使用Alpine进行交叉编译' >> README-centos5-i686.md
-          echo '- 目标系统：Linux 2.6.18内核，glibc 2.5' >> README-centos5-i686.md
-          echo '- 构建特性：' >> README-centos5-i686.md
-          echo '  - 静态链接（无外部依赖）' >> README-centos5-i686.md
-          echo '  - 32位i686架构' >> README-centos5-i686.md
-          echo '  - 使用UPX压缩以减小体积' >> README-centos5-i686.md
-          echo '## 使用方法' >> README-centos5-i686.md
-          echo '1. 下载二进制文件' >> README-centos5-i686.md
-          echo '2. 赋予执行权限：`chmod +x sliver-server-centos5-i686`' >> README-centos5-i686.md
-          echo '3. 运行服务器：`./sliver-server-centos5-i686`' >> README-centos5-i686.md
-          echo '首次运行时，服务器将生成所需的配置文件和证书。' >> README-centos5-i686.md
-          echo '' >> README-centos5-i686.md
-          echo '## 功能限制' >> README-centos5-i686.md
-          echo '此版本使用了`no_assets`标签构建，意味着没有内置资源包（Go、编译器等）。' >> README-centos5-i686.md
-          echo '如果需要使用implant生成功能，请将必要的资源手动放置在相应目录中。' >> README-centos5-i686.md
-          echo '' >> README-centos5-i686.md
-          echo '## 注意事项' >> README-centos5-i686.md
-          echo '' >> README-centos5-i686.md
-          echo '- 此二进制文件已经过静态编译，不依赖系统库' >> README-centos5-i686.md
-          echo '- 为保证最佳兼容性，使用`-extldflags '"'"'-static'"'"'`构建' >> README-centos5-i686.md
-          echo '- 使用UPX压缩，如运行时遇到问题，可尝试解压缩：`upx -d sliver-server-centos5-i686`' >> README-centos5-i686.md
+          cat > README-centos5-i686.md << 'EOT'
+          # Sliver Server for CentOS 5.11 i686
+          
+          此构建专为老旧的CentOS 5.11 i686系统设计，构建设置如下：
+          - 基于静态编译的Go应用程序
+          - 使用Alpine进行交叉编译
+          - 目标系统：Linux 2.6.18内核，glibc 2.5
+          - 构建特性：
+            - 静态链接（无外部依赖）
+            - 32位i686架构
+            - 使用UPX压缩以减小体积
+          
+          ## 使用方法
+          1. 下载二进制文件
+          2. 赋予执行权限：`chmod +x sliver-server-centos5-i686`
+          3. 运行服务器：`./sliver-server-centos5-i686`
+          
+          首次运行时，服务器将生成所需的配置文件和证书。
+          
+          ## 功能限制
+          此版本使用了`no_assets`标签构建，意味着没有内置资源包（Go、编译器等）。
+          如果需要使用implant生成功能，请将必要的资源手动放置在相应目录中。
+          
+          ## 注意事项
+          
+          - 此二进制文件已经过静态编译，不依赖系统库
+          - 为保证最佳兼容性，使用`-extldflags '-static'`构建
+          - 使用UPX压缩，如运行时遇到问题，可尝试解压缩：`upx -d sliver-server-centos5-i686`
+          EOT
           
           # 确保README也放入artifacts目录
-          mkdir -p ./artifacts
           cp README-centos5-i686.md ./artifacts/
           
       - name: Upload README
         uses: actions/upload-artifact@v4
         with:
           name: sliver-server-centos5-i686-docs
-          path: ./artifacts/README-centos5-i686.md
-          if-no-files-found: warn
-          compression-level: 6
-          overwrite: false 
+          path: ./README-centos5-i686.md 
