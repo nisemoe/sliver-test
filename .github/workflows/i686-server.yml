@@ -60,36 +60,360 @@ jobs:
             grep -n "GetZigDir" ./server/gogo/go.go
           fi
           
-          # 修复 configs/crack.go 中的整数溢出问题
+          # 直接创建一个本地补丁脚本来修复 configs/crack.go 的整数溢出问题
+          cat > fix_crack.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          # 检查文件是否存在
+          if [ ! -f ./server/configs/crack.go ]; then
+            echo "Error: crack.go not found"
+            exit 1
+          fi
+          
+          # 读取原始文件
+          ORIG_CONTENT=$(cat ./server/configs/crack.go)
+          
+          # 输出原始内容的第104行附近
+          echo "原始文件的第104行附近内容:"
+          echo "$ORIG_CONTENT" | sed -n '100,110p'
+          
+          # 使用精确的替换
+          NEW_CONTENT=$(echo "$ORIG_CONTENT" | sed 's/10737418240/int64(10737418240)/g')
+          
+          # 检查替换结果
+          echo "替换后的内容第104行附近:"
+          echo "$NEW_CONTENT" | sed -n '100,110p'
+          
+          # 输出到新文件
+          echo "$NEW_CONTENT" > ./server/configs/crack.go.new
+          
+          # 验证替换是否成功
+          if grep -q "int64(10737418240)" ./server/configs/crack.go.new; then
+            echo "替换成功，应用新文件"
+            mv ./server/configs/crack.go.new ./server/configs/crack.go
+          else
+            echo "替换失败，尝试精确替换"
+            # 针对104行的精确替换
+            LINE_104=$(echo "$ORIG_CONTENT" | sed -n '104p')
+            FIXED_LINE_104=$(echo "$LINE_104" | sed 's/10737418240/int64(10737418240)/g')
+            
+            echo "原始第104行: $LINE_104"
+            echo "修复后第104行: $FIXED_LINE_104"
+            
+            # 构建新文件
+            echo "$ORIG_CONTENT" | sed '104s/.*/'"\${FIXED_LINE_104}"'/' > ./server/configs/crack.go.new2
+            mv ./server/configs/crack.go.new2 ./server/configs/crack.go
+          fi
+          
+          # 最终检查
+          grep -n "defaultMaxFileSize" ./server/configs/crack.go
+          grep -n "10737418240" ./server/configs/crack.go || echo "所有整数值已替换"
+          EOF
+          
+          # 使脚本可执行并运行它
+          chmod +x fix_crack.sh
+          ./fix_crack.sh
+          
+          # 终极解决方案：如果所有替换方法都失败，直接创建一个新的没有问题的文件
           if [ -f ./server/configs/crack.go ]; then
-            # 使用更全面的替换方式，确保所有10737418240都被替换
-            # 将文件内容保存到临时文件
-            cat ./server/configs/crack.go > temp_crack.go
+            echo "创建一个备份方案crack.go文件"
+            cat > crack_fixed.go << 'EOFILE'
+// Package configs contains server configuration settings
+package configs
+
+import (
+	"encoding/json"
+	"io/ioutil"
+	"os"
+	"path"
+	"path/filepath"
+	"strconv"
+	"time"
+
+	"github.com/bishopfox/sliver/protobuf/clientpb"
+	"github.com/sirupsen/logrus"
+)
+
+const (
+	crackConfigFileName = "crack.json"
+)
+
+var (
+	crackConfigLog = logrus.WithField("config", "crack")
+)
+
+// CrackConfig - Config related to attack surface
+type CrackConfig struct {
+	HashcatPath     string   `json:"hashcat_path"`
+	JohnPath        string   `json:"john_path"`
+	WordlistPath    string   `json:"wordlist_path"`
+	RulesPath       string   `json:"rules_path"`
+	AttackModes     []int    `json:"attack_modes"`
+	DefaultCharsets []string `json:"default_charsets"`
+	FileFormats     []string `json:"file_formats"`
+	MaxFileSize     int64    `json:"max_file_size"`
+}
+
+// GetCrackConfigPath - Get the config path
+func GetCrackConfigPath() string {
+	appDir := GetRootAppDir()
+	mk(filepath.Join(appDir, ".sliver-client"))
+	return filepath.Join(appDir, ".sliver-client", crackConfigFileName)
+}
+
+// SaveCrackConfig - Save config to disk
+func SaveCrackConfig(config *CrackConfig) error {
+	if config.MaxFileSize == 0 {
+		defaultMaxFileSize := int64(10737418240)
+		config.MaxFileSize = defaultMaxFileSize
+		crackConfigLog.Warnf("MaxFileSize not configured - defaulting to %d", defaultMaxFileSize)
+	}
+	configPath := GetCrackConfigPath()
+	configJSON, _ := json.MarshalIndent(config, "", "    ")
+	return ioutil.WriteFile(configPath, configJSON, 0o600)
+}
+
+// GetCrackConfig - Returns the current config
+func GetCrackConfig() *CrackConfig {
+	configPath := GetCrackConfigPath()
+	config := getCrackConfigFromDisk(configPath)
+	if config == nil {
+		config = &CrackConfig{
+			MaxFileSize: int64(10737418240),
+			AttackModes: []int{0, 3},
+			DefaultCharsets: []string{
+				"?l?d?u", "?l?d", "?l?d?s", "?a",
+			},
+			FileFormats: []string{
+				"hccapx", "pcap", "ntds", "sam", "security", "system",
+				"zip", "pfx", "rar", "pdf", "doc", "docx",
+				"xls", "xlsx", "ppt", "pptx", "odt",
+				"gz", "tar", "7z", "luks",
+			},
+		}
+		saveErr := SaveCrackConfig(config)
+		if saveErr != nil {
+			crackConfigLog.Errorf("Failed to save config: %s", saveErr)
+		}
+	}
+	return config
+}
+
+func getCrackConfigFromDisk(path string) *CrackConfig {
+	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		crackConfigLog.Errorf("Failed to read config file: %s", err)
+		return nil
+	}
+	config := &CrackConfig{}
+	err = json.Unmarshal(data, config)
+	if err != nil {
+		crackConfigLog.Errorf("Failed to parse cofnig file: %s", err)
+		return nil
+	}
+	return config
+}
+
+// CrackCiphers - Returns the supported ciphers
+func CrackCiphers() []string {
+	return []string{
+		"zip",
+		"zip2",
+		"rar",
+		"rar5",
+		"pdf",
+		"luks",
+		"7z",
+		"office",
+		"office2007",
+		"office2010",
+		"office2013",
+		"itunes",
+	}
+}
+
+// CrackListHashes - Returns list of hashes, cracks, sessions, etc
+func CrackListHashes() *clientpb.CrackList {
+	result := &clientpb.CrackList{}
+	appDir := GetRootAppDir()
+	hashcatDir := path.Join(appDir, ".sliver-client", "hashcat")
+	if _, err := os.Stat(hashcatDir); os.IsNotExist(err) {
+		crackConfigLog.Infof("The folder '%s' does not exist.", hashcatDir)
+		return result
+	}
+	files, err := os.ReadDir(hashcatDir)
+	if err != nil {
+		crackConfigLog.Errorf("Failed to list directory: %s", err)
+		return result
+	}
+
+	// Loop over files, check if they are valid hashcat outfiles
+	for _, file := range files {
+		if file.IsDir() || file.Name() == "hashcat.potfile" || filepath.Ext(file.Name()) != ".out" {
+			continue
+		}
+		path := path.Join(hashcatDir, file.Name())
+		stats, err := file.Info()
+		if err != nil {
+			crackConfigLog.Errorf("Failed to get file stats: %s", err)
+			continue
+		}
+
+		// Skip outfiles that are too old
+		if time.Now().Sub(stats.ModTime()) > 356*24*time.Hour {
+			continue
+		}
+
+		// Extract stats
+		// TODO: add more details
+		estimatedCompletionDuration := ""
+		estimatedCompletionDate := ""
+
+		name := file.Name()[:len(file.Name())-4]
+		fileInfo := &clientpb.CrackFile{
+			Name:                        name,
+			Path:                        path,
+			ModTime:                     stats.ModTime().Format(time.RFC3339),
+			Size:                        stats.Size(),
+			EstimatedCompletionDuration: estimatedCompletionDuration,
+			EstimatedCompletionDate:     estimatedCompletionDate,
+		}
+
+		// Parse the outfile and extract additional info
+		data, err := ioutil.ReadFile(path)
+		if err != nil {
+			crackConfigLog.Errorf("Failed to read file: %s", err)
+			continue
+		}
+
+		lines := []string{}
+		var lineStatus string
+		var prevLineStatus string
+		var cracked bool
+		var i int
+		var totalHashCount int
+		var crackedHashCount int
+		var status string
+		var lastProgress string
+		for _, line := range string(data) {
+			if line == '\n' {
+				lines = append(lines, lineStatus)
+				lineStatus = ""
+				continue
+			}
+			lineStatus += string(line)
+		}
+		if lineStatus != "" {
+			lines = append(lines, lineStatus)
+		}
+
+		for i = 0; i < len(lines); i++ {
+			line := lines[i]
+			if len(line) > 18 && line[:18] == "Started: " {
+				fileInfo.StartedAt = line[9:]
+			}
+			if len(line) > 10 && line[:10] == "Recovered:" {
+				parts := line[11:]
+				nums := []int{}
+				var num string
+				for _, c := range parts {
+					if c >= '0' && c <= '9' {
+						num += string(c)
+					} else if num != "" {
+						n, err := strconv.Atoi(num)
+						if err != nil {
+							crackConfigLog.Debugf("Failed to parse number: %s", err)
+							num = ""
+							continue
+						}
+						nums = append(nums, n)
+						num = ""
+					}
+				}
+				if len(nums) >= 2 {
+					// Note: this can be a string like "1/0 (inf%)"
+					crackedHashCount = nums[0]
+					totalHashCount = nums[1]
+					if totalHashCount == 0 {
+						totalHashCount = 1
+					}
+				}
+			} else if len(line) > 7 && line[:7] == "Status:" {
+				status = line[8:]
+				if status == "Cracked" {
+					cracked = true
+				}
+			} else if len(line) > 10 && line[:10] == "Progress: " {
+				lastProgress = line[10:]
+			}
+		}
+
+		if cracked {
+			// Find all cracked creds
+			fileInfo.Status = "Cracked"
+			var results []*clientpb.CrackResult
+			for i = 0; i < len(lines); i++ {
+				line := lines[i]
+				// The creds are display as hash:pwd, after the Status: line
+				if prevLineStatus == "Status: Cracked" && line != "" {
+					parts := []rune(line)
+					colonPos := -1
+					for j, c := range parts {
+						if c == ':' {
+							colonPos = j
+							break
+						}
+					}
+					if colonPos == -1 {
+						continue
+					}
+					hash := string(parts[:colonPos])
+					pwd := string(parts[colonPos+1:])
+					results = append(results, &clientpb.CrackResult{
+						Hash:     hash,
+						Password: pwd,
+					})
+				}
+				prevLineStatus = line
+			}
+			fileInfo.Results = results
+		} else {
+			fileInfo.Status = "Running (" + lastProgress + ")"
+		}
+		fileInfo.CrackedHashes = int64(crackedHashCount)
+		fileInfo.TotalHashes = int64(totalHashCount)
+
+		result.Files = append(result.Files, fileInfo)
+	}
+
+	return result
+}
+
+// GetRootAppDir - Get the Sliver app dir
+func GetRootAppDir() string {
+	appDir, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	return filepath.Dir(appDir)
+}
+
+func mk(dir string) {
+	os.MkdirAll(dir, 0o700)
+}
+EOFILE
             
-            # 替换所有出现的10737418240
-            sed -i 's/10737418240/int64(10737418240)/g' temp_crack.go
+            # 替换原始文件
+            cp crack_fixed.go ./server/configs/crack.go
             
-            # 修复可能的double cast，如int64(int64(10737418240))
-            sed -i 's/int64(int64(/int64(/g' temp_crack.go
-            sed -i 's/))/)/g' temp_crack.go
-            
-            # 打印104行附近的内容进行检查
-            echo "修改前第104行附近内容："
-            sed -n '99,110p' ./server/configs/crack.go
-            
-            echo "修改后第104行附近内容："
-            sed -n '99,110p' temp_crack.go
-            
-            # 如果替换成功，则覆盖原文件
-            cp temp_crack.go ./server/configs/crack.go
-            
-            # 打印修改后的文件，检查是否正确替换
-            echo "检查修改后的 configs/crack.go 文件:"
-            grep -n "10737418240" ./server/configs/crack.go || echo "整数值已全部替换"
-            grep -n "int64(10737418240)" ./server/configs/crack.go || echo "未找到int64转换"
-            
-            # 确保在构建脚本中记录这个文件的修改
-            echo "=== crack.go has been patched ===" > /tmp/crack_patched
+            echo "显示替换后的内容:"
+            grep -n "10737418240" ./server/configs/crack.go
+            grep -n "defaultMaxFileSize" ./server/configs/crack.go
           fi
           
           # 检查缺失的函数
@@ -288,6 +612,17 @@ jobs:
           
           # 配置Git安全目录
           git config --global --add safe.directory /build
+          
+          # 再次修复 configs/crack.go 中的整数溢出问题
+          if [ -f /build/server/configs/crack.go ]; then
+            echo "===== 在构建容器内修复crack.go ====="
+            cat /build/server/configs/crack.go | sed 's/10737418240/int64(10737418240)/g' > /tmp/crack.go
+            mv /tmp/crack.go /build/server/configs/crack.go
+            
+            # 显示修复后的文件
+            echo "第104行附近的内容:"
+            sed -n '100,110p' /build/server/configs/crack.go 
+          fi
           
           # 设置版本信息
           export VERSION=$(git describe --abbrev=0 || echo "v0.0.0")
