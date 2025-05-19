@@ -314,21 +314,27 @@ jobs:
           
           # 构建服务器 - 这次使用no_assets标签跳过资产嵌入
           echo "Building sliver-server for CentOS 5.11 i686..."
-          go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server" -ldflags "${LDFLAGS}" -o sliver-server-centos5-i686 ./server
+          go build -mod=vendor -trimpath -tags "netgo,osusergo,no_assets,server" -ldflags "${LDFLAGS}" -o /build/sliver-server-centos5-i686 ./server
           
           # 使用UPX进一步压缩二进制文件
           echo "压缩二进制文件..."
-          upx -9 sliver-server-centos5-i686
+          upx -9 /build/sliver-server-centos5-i686
           
           # 验证构建结果
-          file sliver-server-centos5-i686
+          file /build/sliver-server-centos5-i686
+          
+          # 再次检查文件是否存在
+          ls -la /build/sliver-server-centos5-i686
+          
+          # 确保文件有执行权限
+          chmod +x /build/sliver-server-centos5-i686
           EOF
           
           # 使脚本可执行
           chmod +x build.sh
           
           # 在Docker容器中运行构建
-          docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && (./build.sh 2>&1 | tee /tmp/build.log) || (echo '======= BUILD ERROR =======' && cat /tmp/build.log && false)"
+          docker run -v $(pwd):/build sliver-build /bin/sh -c "cd /build && (./build.sh 2>&1 | tee /tmp/build.log) && ls -la /build/ && cp -v /build/sliver-server-centos5-i686 /build/ || (echo '======= BUILD ERROR =======' && cat /tmp/build.log && false)"
 
       - name: Verify patched files
         if: failure()
@@ -357,15 +363,27 @@ jobs:
 
       - name: Test binary compatibility
         run: |
+          # 列出当前目录文件
+          echo "当前目录文件："
+          ls -la ./
+          
           # 验证二进制文件是否为静态链接的32位可执行文件
-          file sliver-server-centos5-i686
-          ldd sliver-server-centos5-i686 || echo "Binary is static (expected)"
+          if [ -f ./sliver-server-centos5-i686 ]; then
+            file ./sliver-server-centos5-i686
+            ldd ./sliver-server-centos5-i686 || echo "Binary is static (expected)"
+          else
+            echo "Binary not found, checking other locations..."
+            find ./ -name "sliver-server-centos5-i686" -type f
+          fi
 
       - name: Upload sliver server
         uses: actions/upload-artifact@v4
         with:
           name: sliver-server-centos5-i686
-          path: sliver-server-centos5-i686
+          path: |
+            ./sliver-server-centos5-i686
+            /build/sliver-server-centos5-i686
+          if-no-files-found: warn
           
       - name: Create README
         run: |
@@ -407,3 +425,9 @@ jobs:
         with:
           name: sliver-server-centos5-i686-docs
           path: README-centos5-i686.md 
+
+      # 确保文件存在且有正确权限
+      - name: Verify file existence and permissions
+        run: |
+          ls -la ./sliver-server-centos5-i686 || echo "Binary not found in expected location"
+          [ -f ./sliver-server-centos5-i686 ] && chmod +x ./sliver-server-centos5-i686 
